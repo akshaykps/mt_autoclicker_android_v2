@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="mt_deep">#FF060B27</color>
+    <color name="mt_card">#FF0D1333</color>
+    <color name="mt_border">#FF1E2D5A</color>
+    <color name="mt_blue">#FF3B82F6</color>
+    <color name="mt_purple">#FF8B5CF6</color>
+    <style name="Theme.MtAutoClicker" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/mt_deep</item>
+        <item name="android:navigationBarColor">@color/mt_deep</item>
+        <item name="android:windowBackground">@color/mt_deep</item>
+    </style>
+</resources>
