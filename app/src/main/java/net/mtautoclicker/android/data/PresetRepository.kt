@@ -57,6 +57,7 @@ class PresetRepository(private val context: Context) {
         val name = when (feature) {
             FeatureKind.SINGLE_TARGET -> "Recent · Single Target"
             FeatureKind.MULTI_TARGET -> "Recent · Multi Target"
+            FeatureKind.MACRO_RECORDER -> "Recent · Macro"
         }
         val preset = MtPreset(
             id = id,

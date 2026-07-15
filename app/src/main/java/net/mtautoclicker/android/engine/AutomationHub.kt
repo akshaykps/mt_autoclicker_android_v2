@@ -109,6 +109,7 @@ object AutomationHub {
     fun featureLabel(kind: FeatureKind?): String? = when (kind) {
         FeatureKind.SINGLE_TARGET -> "Single Target"
         FeatureKind.MULTI_TARGET -> "Multi Target"
+        FeatureKind.MACRO_RECORDER -> "Macro Recorder"
         null -> null
     }
 }

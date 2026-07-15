@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="40dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="2dp"
+    android:paddingEnd="2dp">
+
+    <TextView
+        android:id="@+id/notif_ready_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:fontFamily="sans-serif-medium"
+        android:maxLines="1"
+        android:text="Macro ready"
+        android:textColor="#FF1C1C1E"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/notif_ready_subtitle"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text="0 actions"
+        android:textColor="#FF6B6B70"
+        android:textSize="13sp" />
+
+    <ImageView
+        android:id="@+id/notif_ready_close"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_marginEnd="8dp"
+        android:background="@drawable/bg_notif_circle_dark"
+        android:contentDescription="Close"
+        android:padding="8dp"
+        android:scaleType="centerInside"
+        android:src="@drawable/ic_close" />
+
+    <ImageView
+        android:id="@+id/notif_ready_play"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:background="@drawable/bg_notif_play_circle"
+        android:contentDescription="Play"
+        android:padding="9dp"
+        android:scaleType="centerInside"
+        android:src="@drawable/ic_play" />
+</LinearLayout>

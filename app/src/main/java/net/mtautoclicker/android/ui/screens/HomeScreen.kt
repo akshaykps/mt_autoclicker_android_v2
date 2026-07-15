@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AdsClick
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.StopCircle
@@ -41,6 +42,7 @@ import net.mtautoclicker.android.engine.AutomationHub
 import net.mtautoclicker.android.engine.formatDuration
 import net.mtautoclicker.android.ui.components.AccentBlue
 import net.mtautoclicker.android.ui.components.AccentEmerald
+import net.mtautoclicker.android.ui.components.AccentRose
 import net.mtautoclicker.android.ui.components.AccentViolet
 import net.mtautoclicker.android.ui.components.FeatureCard
 import net.mtautoclicker.android.ui.components.HeroHeader
@@ -60,6 +62,7 @@ enum class AppRoute {
     HOME,
     SINGLE_TARGET,
     MULTI_TARGET,
+    MACRO_RECORDER,
     PRESETS,
     SETTINGS,
     PERMISSIONS,
@@ -157,6 +160,13 @@ fun HomeScreen(
                 accent = AccentViolet,
                 icon = Icons.Rounded.GridView,
                 onClick = { onNavigate(AppRoute.MULTI_TARGET) },
+            )
+            FeatureCard(
+                title = "Macro Recorder",
+                subtitle = "Record taps, holds & swipes — then play them back",
+                accent = AccentRose,
+                icon = Icons.Rounded.FiberManualRecord,
+                onClick = { onNavigate(AppRoute.MACRO_RECORDER) },
             )
 
             SectionLabel("Workflow")

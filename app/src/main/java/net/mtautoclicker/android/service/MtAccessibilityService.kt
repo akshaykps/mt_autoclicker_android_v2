@@ -3,20 +3,41 @@ package net.mtautoclicker.android.service
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
+import android.graphics.Rect
 import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+import net.mtautoclicker.android.data.MacroPoint
+import net.mtautoclicker.android.data.MacroStep
+import net.mtautoclicker.android.data.MacroStepKind
 import net.mtautoclicker.android.data.MouseButton
 import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
 import kotlin.random.Random
 
 class MtAccessibilityService : AccessibilityService() {
 
     private val gestureMutex = Mutex()
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    @Volatile
+    var onWindowsOrFocusChanged: (() -> Unit)? = null
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        when (event?.eventType) {
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            AccessibilityEvent.TYPE_VIEW_FOCUSED,
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
+            -> onWindowsOrFocusChanged?.invoke()
+        }
+    }
 
     override fun onInterrupt() = Unit
 
@@ -27,6 +48,7 @@ class MtAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         if (instance === this) instance = null
+        onWindowsOrFocusChanged = null
         super.onDestroy()
     }
 
@@ -41,8 +63,6 @@ class MtAccessibilityService : AccessibilityService() {
         val clickX = x + jitterX
         val clickY = y + jitterY
 
-        // Do NOT hide the float bar during clicks — that caused rapid blinking at short
-        // intervals and made Pause/Stop impossible to tap.
         return when (button) {
             MouseButton.LEFT -> dispatchTap(clickX, clickY)
             MouseButton.RIGHT -> dispatchLongPress(clickX, clickY, 600L)
@@ -50,47 +70,206 @@ class MtAccessibilityService : AccessibilityService() {
         }
     }
 
-    private suspend fun dispatchTap(x: Float, y: Float, durationMs: Long = 50L): Boolean =
+    suspend fun performMacroStep(step: MacroStep): Boolean {
+        return when (step.kind) {
+            MacroStepKind.TAP -> {
+                val x = step.x ?: return false
+                val y = step.y ?: return false
+                dispatchTap(x, y, step.durationMs.coerceIn(28L, 55L))
+            }
+            MacroStepKind.LONG_PRESS -> {
+                val x = step.x ?: return false
+                val y = step.y ?: return false
+                dispatchLongPress(x, y, step.durationMs.coerceIn(400L, 3000L))
+            }
+            MacroStepKind.SWIPE -> {
+                val x1 = step.x ?: return false
+                val y1 = step.y ?: return false
+                val x2 = step.x2 ?: return false
+                val y2 = step.y2 ?: return false
+                dispatchSwipe(x1, y1, x2, y2, step.durationMs.coerceIn(80L, 2500L))
+            }
+            MacroStepKind.PATH -> {
+                val pts = step.points
+                if (pts.isNullOrEmpty()) return false
+                dispatchPath(pts, step.durationMs.coerceIn(80L, 3500L))
+            }
+            MacroStepKind.TYPE_TEXT -> setFocusedEditableText(step.text.orEmpty())
+        }
+    }
+
+    /**
+     * Live reinjection while recording. UI-zone taps/swipes only —
+     * keyboard typing uses native IME pass-through + TYPE_TEXT capture.
+     */
+    suspend fun performMacroStepLive(step: MacroStep): Boolean {
+        return when (step.kind) {
+            MacroStepKind.TAP, MacroStepKind.LONG_PRESS -> {
+                val x = step.x ?: return false
+                val y = step.y ?: return false
+                dispatchTap(x, y, 40L, timeoutMs = 260L)
+            }
+            MacroStepKind.SWIPE -> {
+                val x1 = step.x ?: return false
+                val y1 = step.y ?: return false
+                val x2 = step.x2 ?: return false
+                val y2 = step.y2 ?: return false
+                dispatchSwipe(
+                    x1, y1, x2, y2,
+                    step.durationMs.coerceIn(90L, 320L),
+                    timeoutMs = 500L,
+                )
+            }
+            MacroStepKind.PATH -> {
+                val pts = step.points
+                if (pts.isNullOrEmpty()) return false
+                dispatchPath(pts, step.durationMs.coerceIn(90L, 320L), timeoutMs = 500L)
+            }
+            MacroStepKind.TYPE_TEXT -> setFocusedEditableText(step.text.orEmpty())
+        }
+    }
+
+    fun inputMethodBounds(): Rect? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return null
+        return runCatching {
+            windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+                ?.let { win ->
+                    Rect().also { win.getBoundsInScreen(it) }
+                }
+                ?.takeIf { it.height() > 80 && it.width() > 80 }
+        }.getOrNull()
+    }
+
+    fun focusedEditableText(): String? {
+        val root = rootInActiveWindow ?: return null
+        var focused: AccessibilityNodeInfo? = null
+        return try {
+            focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            val node = focused ?: findEditable(root)
+            node?.text?.toString()
+        } finally {
+            focused?.recycle()
+            root.recycle()
+        }
+    }
+
+    fun setFocusedEditableText(text: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        var focused: AccessibilityNodeInfo? = null
+        return try {
+            focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            val node = focused ?: findEditable(root) ?: return false
+            val args = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+            }
+            node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        } finally {
+            focused?.recycle()
+            root.recycle()
+        }
+    }
+
+    private fun findEditable(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        if (node.isEditable) return AccessibilityNodeInfo.obtain(node)
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = findEditable(child)
+            child.recycle()
+            if (found != null) return found
+        }
+        return null
+    }
+
+    suspend fun dispatchTap(
+        x: Float,
+        y: Float,
+        durationMs: Long = 50L,
+        timeoutMs: Long = 3_000L,
+    ): Boolean =
         gestureMutex.withLock {
             val path = Path().apply { moveTo(x, y) }
             val stroke = GestureDescription.StrokeDescription(path, 0, durationMs)
             val gesture = GestureDescription.Builder().addStroke(stroke).build()
-            dispatchGestureAwait(gesture)
+            dispatchGestureAwait(gesture, timeoutMs)
         }
 
-    private suspend fun dispatchLongPress(x: Float, y: Float, durationMs: Long): Boolean =
+    suspend fun dispatchLongPress(x: Float, y: Float, durationMs: Long): Boolean =
         gestureMutex.withLock {
             val path = Path().apply { moveTo(x, y) }
             val stroke = GestureDescription.StrokeDescription(path, 0, durationMs)
             val gesture = GestureDescription.Builder().addStroke(stroke).build()
-            dispatchGestureAwait(gesture)
+            dispatchGestureAwait(gesture, (durationMs + 800L).coerceAtMost(4_000L))
         }
 
-    private suspend fun dispatchGestureAwait(gesture: GestureDescription): Boolean {
+    suspend fun dispatchSwipe(
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        durationMs: Long,
+        timeoutMs: Long = 3_500L,
+    ): Boolean = gestureMutex.withLock {
+        val path = Path().apply {
+            moveTo(x1, y1)
+            lineTo(x2, y2)
+        }
+        val stroke = GestureDescription.StrokeDescription(path, 0, durationMs)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        dispatchGestureAwait(gesture, timeoutMs)
+    }
+
+    suspend fun dispatchPath(
+        points: List<MacroPoint>,
+        durationMs: Long,
+        timeoutMs: Long = 4_000L,
+    ): Boolean =
+        gestureMutex.withLock {
+            if (points.isEmpty()) return@withLock false
+            val path = Path().apply {
+                moveTo(points.first().x, points.first().y)
+                for (i in 1 until points.size) {
+                    lineTo(points[i].x, points[i].y)
+                }
+            }
+            val stroke = GestureDescription.StrokeDescription(path, 0, durationMs)
+            val gesture = GestureDescription.Builder().addStroke(stroke).build()
+            dispatchGestureAwait(gesture, timeoutMs)
+        }
+
+    private suspend fun dispatchGestureAwait(
+        gesture: GestureDescription,
+        timeoutMs: Long,
+    ): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
-        return suspendCoroutine { cont ->
-            var resumed = false
-            val callback = object : GestureResultCallback() {
-                override fun onCompleted(gestureDescription: GestureDescription?) {
-                    if (!resumed) {
-                        resumed = true
-                        cont.resume(true)
+        val result = withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine { cont ->
+                var resumed = false
+                val mainHandler = Handler(Looper.getMainLooper())
+                val callback = object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) {
+                        if (!resumed) {
+                            resumed = true
+                            cont.resume(true)
+                        }
+                    }
+
+                    override fun onCancelled(gestureDescription: GestureDescription?) {
+                        if (!resumed) {
+                            resumed = true
+                            cont.resume(false)
+                        }
                     }
                 }
-
-                override fun onCancelled(gestureDescription: GestureDescription?) {
-                    if (!resumed) {
+                mainHandler.post {
+                    val dispatched = runCatching { dispatchGesture(gesture, callback, null) }.getOrDefault(false)
+                    if (!dispatched && !resumed) {
                         resumed = true
                         cont.resume(false)
                     }
                 }
             }
-            val dispatched = dispatchGesture(gesture, callback, null)
-            if (!dispatched && !resumed) {
-                resumed = true
-                cont.resume(false)
-            }
         }
+        return result == true
     }
 
     companion object {

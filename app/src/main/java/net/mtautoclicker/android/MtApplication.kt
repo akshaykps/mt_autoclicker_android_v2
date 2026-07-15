@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import net.mtautoclicker.android.data.MacroRepository
 import net.mtautoclicker.android.data.PresetRepository
 import net.mtautoclicker.android.data.SettingsRepository
 import net.mtautoclicker.android.data.TrackingService
@@ -19,6 +20,9 @@ class MtApplication : Application() {
     lateinit var presetRepository: PresetRepository
         private set
 
+    lateinit var macroRepository: MacroRepository
+        private set
+
     lateinit var trackingService: TrackingService
         private set
 
@@ -27,6 +31,7 @@ class MtApplication : Application() {
         instance = this
         settingsRepository = SettingsRepository(this)
         presetRepository = PresetRepository(this)
+        macroRepository = MacroRepository(this)
         trackingService = TrackingService(this, settingsRepository)
         appScope.launch {
             trackingService.trackInstallIfNeeded()

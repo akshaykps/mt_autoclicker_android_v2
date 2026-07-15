@@ -44,8 +44,10 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import net.mtautoclicker.android.MtApplication
 import net.mtautoclicker.android.data.FeatureKind
+import net.mtautoclicker.android.data.MacroPlaybackConfig
 import net.mtautoclicker.android.data.MtPreset
 import net.mtautoclicker.android.data.MultiTargetConfig
+import net.mtautoclicker.android.data.SavedMacro
 import net.mtautoclicker.android.data.SingleTargetConfig
 import net.mtautoclicker.android.engine.AutomationLauncher
 import net.mtautoclicker.android.engine.LaunchResult
@@ -59,7 +61,7 @@ import net.mtautoclicker.android.ui.theme.MtMid
 import net.mtautoclicker.android.ui.theme.MtPurple
 import net.mtautoclicker.android.ui.theme.MtRow
 
-private enum class PresetFilter { ALL, SINGLE, MULTI }
+private enum class PresetFilter { ALL, SINGLE, MULTI, MACRO }
 
 @Composable
 fun PresetsScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
@@ -74,6 +76,7 @@ fun PresetsScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
             PresetFilter.ALL -> presets
             PresetFilter.SINGLE -> presets.filter { it.feature == FeatureKind.SINGLE_TARGET }
             PresetFilter.MULTI -> presets.filter { it.feature == FeatureKind.MULTI_TARGET }
+            PresetFilter.MACRO -> presets.filter { it.feature == FeatureKind.MACRO_RECORDER }
         }
     }
 
@@ -113,6 +116,7 @@ fun PresetsScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
             FilterChip("All", filter == PresetFilter.ALL) { filter = PresetFilter.ALL }
             FilterChip("Single", filter == PresetFilter.SINGLE) { filter = PresetFilter.SINGLE }
             FilterChip("Multi", filter == PresetFilter.MULTI) { filter = PresetFilter.MULTI }
+            FilterChip("Macro", filter == PresetFilter.MACRO) { filter = PresetFilter.MACRO }
         }
 
         if (filtered.isEmpty()) {
@@ -152,15 +156,36 @@ fun PresetsScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
                                 FeatureKind.SINGLE_TARGET -> {
                                     val config = json.decodeFromString<SingleTargetConfig>(preset.configJson)
                                     AutomationLauncher.armSingle(config, preset.targets)
+                                    when (AutomationLauncher.startFloatBar(context)) {
+                                        LaunchResult.Ok -> Toast.makeText(context, "Loaded ${preset.name}", Toast.LENGTH_SHORT).show()
+                                        is LaunchResult.NeedsPermissions -> onNeedsPermissions()
+                                    }
                                 }
                                 FeatureKind.MULTI_TARGET -> {
                                     val config = json.decodeFromString<MultiTargetConfig>(preset.configJson)
                                     AutomationLauncher.armMulti(config, preset.targets)
+                                    when (AutomationLauncher.startFloatBar(context)) {
+                                        LaunchResult.Ok -> Toast.makeText(context, "Loaded ${preset.name}", Toast.LENGTH_SHORT).show()
+                                        is LaunchResult.NeedsPermissions -> onNeedsPermissions()
+                                    }
                                 }
-                            }
-                            when (AutomationLauncher.startFloatBar(context)) {
-                                LaunchResult.Ok -> Toast.makeText(context, "Loaded ${preset.name}", Toast.LENGTH_SHORT).show()
-                                is LaunchResult.NeedsPermissions -> onNeedsPermissions()
+                                FeatureKind.MACRO_RECORDER -> {
+                                    val cfg = json.decodeFromString<MacroPlaybackConfig>(preset.configJson)
+                                    val macro = SavedMacro(
+                                        id = cfg.macroId ?: preset.id,
+                                        name = cfg.macroName.ifBlank { preset.name },
+                                        createdAt = preset.createdAt,
+                                        steps = cfg.steps,
+                                        metadata = net.mtautoclicker.android.data.MacroMetadata(
+                                            durationMs = cfg.steps.sumOf { it.delayMs + it.durationMs },
+                                            actionCount = cfg.steps.size,
+                                        ),
+                                    )
+                                    when (AutomationLauncher.startMacroPlayback(context, macro, cfg)) {
+                                        LaunchResult.Ok -> Toast.makeText(context, "Loaded ${preset.name}", Toast.LENGTH_SHORT).show()
+                                        is LaunchResult.NeedsPermissions -> onNeedsPermissions()
+                                    }
+                                }
                             }
                         }
                     },
@@ -195,10 +220,21 @@ private fun PresetListCard(
     onRun: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val isMulti = preset.feature == FeatureKind.MULTI_TARGET
-    val accent = if (isMulti) MtPurple else MtBlue
-    val icon = if (isMulti) Icons.Rounded.GridView else Icons.Rounded.AdsClick
-    val featureLabel = if (isMulti) "Multi Target" else "Single Target"
+    val accent = when (preset.feature) {
+        FeatureKind.MULTI_TARGET -> MtPurple
+        FeatureKind.MACRO_RECORDER -> Color(0xFFF43F5E)
+        FeatureKind.SINGLE_TARGET -> MtBlue
+    }
+    val icon = when (preset.feature) {
+        FeatureKind.MULTI_TARGET -> Icons.Rounded.GridView
+        FeatureKind.MACRO_RECORDER -> Icons.Rounded.PlayArrow
+        FeatureKind.SINGLE_TARGET -> Icons.Rounded.AdsClick
+    }
+    val featureLabel = when (preset.feature) {
+        FeatureKind.MULTI_TARGET -> "Multi Target"
+        FeatureKind.MACRO_RECORDER -> "Macro"
+        FeatureKind.SINGLE_TARGET -> "Single Target"
+    }
     val targetCount = preset.targets.size
 
     Column(

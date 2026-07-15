@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 enum class FeatureKind {
     SINGLE_TARGET,
     MULTI_TARGET,
+    MACRO_RECORDER,
 }
 
 @Serializable

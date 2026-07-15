@@ -400,3 +400,4 @@ fun HeroHeader(version: String, onSettingsClick: (() -> Unit)? = null) {
 val AccentBlue = Color(0xFF3B82F6)
 val AccentViolet = Color(0xFF8B5CF6)
 val AccentEmerald = Color(0xFF10B981)
+val AccentRose = Color(0xFFF43F5E)
