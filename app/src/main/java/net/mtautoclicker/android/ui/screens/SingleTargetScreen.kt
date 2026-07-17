@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import net.mtautoclicker.android.MtApplication
 import net.mtautoclicker.android.data.FeatureKind
+import net.mtautoclicker.android.data.PresetRepository
 import net.mtautoclicker.android.data.SingleTargetConfig
 import net.mtautoclicker.android.engine.AutomationLauncher
 import net.mtautoclicker.android.engine.LaunchResult
@@ -33,7 +34,7 @@ import net.mtautoclicker.android.engine.formatInterval
 import net.mtautoclicker.android.engine.formatStopSummary
 import net.mtautoclicker.android.ui.components.ExtensionStyleFeatureHero
 import net.mtautoclicker.android.ui.components.FeaturePageScaffold
-import net.mtautoclicker.android.ui.components.FeaturePresetsPanel
+import net.mtautoclicker.android.ui.components.FeatureRecentPanel
 import net.mtautoclicker.android.ui.components.FeatureStepUi
 import net.mtautoclicker.android.ui.components.FeatureTab
 import net.mtautoclicker.android.ui.components.FeatureTabBar
@@ -52,7 +53,9 @@ fun SingleTargetScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
     var starting by remember { mutableStateOf(false) }
     val json = remember { Json { encodeDefaults = true } }
     val allPresets by MtApplication.instance.presetRepository.presets.collectAsState(initial = emptyList())
-    val presets = remember(allPresets) { allPresets.filter { it.feature == FeatureKind.SINGLE_TARGET } }
+    val recents = remember(allPresets) {
+        allPresets.filter { it.feature == FeatureKind.SINGLE_TARGET && PresetRepository.isRecent(it) }
+    }
     val scrollState = rememberScrollState()
     var settingsY by remember { mutableIntStateOf(0) }
 
@@ -122,11 +125,11 @@ fun SingleTargetScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
             )
 
             Spacer(modifier = Modifier.height(4.dp))
-            Text("Tip: tap the summary pill to jump to settings. After you Play, a Recent preset is saved automatically.", color = MtMid)
+            Text("Tip: tap the summary pill to jump to settings. After you Play, a Recent entry is saved automatically. Save any one to keep it under Presets.", color = MtMid)
         } else {
-            FeaturePresetsPanel(
+            FeatureRecentPanel(
                 featureLabel = "Single Target",
-                presets = presets,
+                recents = recents,
                 accent = SingleTargetGradient.first(),
                 onGoToSetup = { tab = FeatureTab.SETUP },
                 onLoad = { preset ->
@@ -148,6 +151,12 @@ fun SingleTargetScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
                             LaunchResult.Ok -> Unit
                             is LaunchResult.NeedsPermissions -> onNeedsPermissions()
                         }
+                    }
+                },
+                onSave = { preset, name ->
+                    scope.launch {
+                        MtApplication.instance.presetRepository.promoteRecentToSaved(preset.id, name)
+                        Toast.makeText(context, "Saved to Presets", Toast.LENGTH_SHORT).show()
                     }
                 },
             )

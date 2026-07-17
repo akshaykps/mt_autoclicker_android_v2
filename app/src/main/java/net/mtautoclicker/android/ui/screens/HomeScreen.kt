@@ -22,6 +22,8 @@ import androidx.compose.material.icons.rounded.AdsClick
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.StopCircle
 import androidx.compose.material3.Icon
@@ -63,6 +65,8 @@ enum class AppRoute {
     SINGLE_TARGET,
     MULTI_TARGET,
     MACRO_RECORDER,
+    FULL_PAGE_SCREENSHOT,
+    AUTO_REFRESH,
     PRESETS,
     SETTINGS,
     PERMISSIONS,
@@ -167,6 +171,20 @@ fun HomeScreen(
                 accent = AccentRose,
                 icon = Icons.Rounded.FiberManualRecord,
                 onClick = { onNavigate(AppRoute.MACRO_RECORDER) },
+            )
+            FeatureCard(
+                title = "Full Page Screenshot",
+                subtitle = "Any app — WhatsApp, Instagram, Chrome & more",
+                accent = Color(0xFF06B6D4),
+                icon = Icons.Rounded.PhotoCamera,
+                onClick = { onNavigate(AppRoute.FULL_PAGE_SCREENSHOT) },
+            )
+            FeatureCard(
+                title = "Auto Refresh",
+                subtitle = "Timed pull-to-refresh for browsers, feeds & apps",
+                accent = Color(0xFFF59E0B),
+                icon = Icons.Rounded.Refresh,
+                onClick = { onNavigate(AppRoute.AUTO_REFRESH) },
             )
 
             SectionLabel("Workflow")

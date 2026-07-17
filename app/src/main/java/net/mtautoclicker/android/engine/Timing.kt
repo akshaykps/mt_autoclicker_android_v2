@@ -50,9 +50,9 @@ fun formatInterval(interval: IntervalConfig): String {
     return "${interval.value.toInt()}$suffix"
 }
 
-fun formatStopSummary(stop: StopCondition): String {
+fun formatStopSummary(stop: StopCondition, unitLabel: String = "clicks"): String {
     return when (stop.type) {
-        StopType.CYCLES -> "${stop.cycles ?: 0} clicks"
+        StopType.CYCLES -> "${stop.cycles ?: 0} $unitLabel"
         StopType.DURATION -> {
             val sec = ((stop.durationMs ?: 0) / 1000).toInt()
             if (sec >= 60) "${sec / 60} min" else "${sec}s"

@@ -99,15 +99,16 @@ class MtAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Live reinjection while recording. UI-zone taps/swipes only —
-     * keyboard typing uses native IME pass-through + TYPE_TEXT capture.
+     * Live reinjection while recording. Overlay must be fully removed first
+     * (OxygenOS often ignores FLAG_NOT_TOUCHABLE). Short durations + short
+     * timeouts keep recording responsive; full timing is saved for playback.
      */
     suspend fun performMacroStepLive(step: MacroStep): Boolean {
         return when (step.kind) {
             MacroStepKind.TAP, MacroStepKind.LONG_PRESS -> {
                 val x = step.x ?: return false
                 val y = step.y ?: return false
-                dispatchTap(x, y, 40L, timeoutMs = 260L)
+                dispatchTap(x, y, 38L, timeoutMs = 140L)
             }
             MacroStepKind.SWIPE -> {
                 val x1 = step.x ?: return false
@@ -116,14 +117,14 @@ class MtAccessibilityService : AccessibilityService() {
                 val y2 = step.y2 ?: return false
                 dispatchSwipe(
                     x1, y1, x2, y2,
-                    step.durationMs.coerceIn(90L, 320L),
-                    timeoutMs = 500L,
+                    step.durationMs.coerceIn(80L, 200L),
+                    timeoutMs = 220L,
                 )
             }
             MacroStepKind.PATH -> {
                 val pts = step.points
                 if (pts.isNullOrEmpty()) return false
-                dispatchPath(pts, step.durationMs.coerceIn(90L, 320L), timeoutMs = 500L)
+                dispatchPath(pts, step.durationMs.coerceIn(80L, 200L), timeoutMs = 220L)
             }
             MacroStepKind.TYPE_TEXT -> setFocusedEditableText(step.text.orEmpty())
         }

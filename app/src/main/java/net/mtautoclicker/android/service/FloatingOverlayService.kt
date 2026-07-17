@@ -887,9 +887,13 @@ class FloatingOverlayService : Service() {
         }
         val liveTargets = AutomationHub.snapshot.value.targets
         val json = Json { encodeDefaults = true }
-        val name = "Preset ${System.currentTimeMillis() % 100000}"
         scope.launch {
             try {
+                val feature = when (plan) {
+                    is AutomationPlan.Single -> FeatureKind.SINGLE_TARGET
+                    is AutomationPlan.Multi -> FeatureKind.MULTI_TARGET
+                }
+                val name = MtApplication.instance.presetRepository.nextDefaultSavedName(feature)
                 when (plan) {
                     is AutomationPlan.Single -> {
                         val cfg = plan.config

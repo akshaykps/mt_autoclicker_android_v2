@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="40dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="2dp"
+    android:paddingEnd="2dp">
+
+    <TextView
+        android:id="@+id/notif_refresh_title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:fontFamily="sans-serif-medium"
+        android:maxLines="1"
+        android:text="Auto Refresh running"
+        android:textColor="#FF1C1C1E"
+        android:textSize="14sp" />
+
+    <ImageView
+        android:id="@+id/notif_refresh_stop"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:background="@drawable/bg_notif_stop_circle"
+        android:contentDescription="Stop"
+        android:padding="9dp"
+        android:scaleType="centerInside"
+        android:src="@drawable/ic_stop" />
+</LinearLayout>

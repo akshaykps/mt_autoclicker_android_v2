@@ -21,18 +21,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,7 +52,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
+import net.mtautoclicker.android.MtApplication
 import net.mtautoclicker.android.data.MtPreset
+import net.mtautoclicker.android.data.PresetRepository
 import net.mtautoclicker.android.ui.theme.LocalMtPalette
 import net.mtautoclicker.android.ui.theme.MtBlue
 import net.mtautoclicker.android.ui.theme.MtBorder
@@ -58,7 +67,7 @@ import net.mtautoclicker.android.ui.theme.MtMid
 import net.mtautoclicker.android.ui.theme.MtPurple
 import net.mtautoclicker.android.ui.theme.MtRow
 
-enum class FeatureTab { SETUP, PRESETS }
+enum class FeatureTab { SETUP, RECENT }
 
 data class FeatureStepUi(
     val icon: ImageVector,
@@ -90,12 +99,12 @@ fun FeatureTabBar(
             onClick = { onSelect(FeatureTab.SETUP) },
         )
         FeatureTabChip(
-            label = "Presets",
-            icon = Icons.Rounded.PlayArrow,
-            selected = selected == FeatureTab.PRESETS,
+            label = "Recent",
+            icon = Icons.Rounded.History,
+            selected = selected == FeatureTab.RECENT,
             gradient = presetsGradient,
             modifier = Modifier.weight(1f),
-            onClick = { onSelect(FeatureTab.PRESETS) },
+            onClick = { onSelect(FeatureTab.RECENT) },
         )
     }
 }
@@ -353,15 +362,29 @@ fun ExtensionStyleFeatureHero(
 }
 
 @Composable
-fun FeaturePresetsPanel(
+fun FeatureRecentPanel(
     featureLabel: String,
-    presets: List<MtPreset>,
+    recents: List<MtPreset>,
     accent: Color,
     onGoToSetup: () -> Unit,
     onLoad: (MtPreset) -> Unit,
     onDelete: (MtPreset) -> Unit,
     onRun: (MtPreset) -> Unit,
+    onSave: (MtPreset, String) -> Unit,
+    emptyHint: String = "Run this feature once — recent setups show up here. Save any one to keep it in Presets.",
 ) {
+    var saveTarget by remember { mutableStateOf<MtPreset?>(null) }
+    var saveName by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+    val repo = MtApplication.instance.presetRepository
+
+    fun openSaveDialog(preset: MtPreset) {
+        saveTarget = preset
+        saveName = PresetRepository.defaultSavedName(preset.feature)
+        scope.launch {
+            saveName = repo.nextDefaultSavedName(preset.feature)
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(
             modifier = Modifier
@@ -380,19 +403,19 @@ fun FeaturePresetsPanel(
                     .background(accent.copy(alpha = 0.25f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Rounded.PlayArrow, null, tint = accent, modifier = Modifier.size(22.dp))
+                Icon(Icons.Rounded.History, null, tint = accent, modifier = Modifier.size(22.dp))
             }
             Column {
-                Text("Saved presets", color = MtHi, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("Recent", color = MtHi, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 Text(
-                    "${presets.size} preset${if (presets.size == 1) "" else "s"} for this feature",
+                    "${recents.size} recent run${if (recents.size == 1) "" else "s"} · save to keep in Presets",
                     color = MtMid,
                     fontSize = 12.sp,
                 )
             }
         }
 
-        if (presets.isEmpty()) {
+        if (recents.isEmpty()) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -402,20 +425,20 @@ fun FeaturePresetsPanel(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Icon(
-                    Icons.Rounded.PlayArrow,
+                    Icons.Rounded.History,
                     null,
                     tint = MtMid.copy(alpha = 0.35f),
                     modifier = Modifier.size(48.dp),
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                Text("No presets yet", color = MtHi, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text("No recent $featureLabel runs yet", color = MtHi, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                        "Use Multi Target, place markers, and Play — your last run is saved here automatically. Or tap Save on the float bar.",
-                        color = MtMid,
-                        fontSize = 12.sp,
-                        textAlign = TextAlign.Center,
-                    )
+                    emptyHint,
+                    color = MtMid,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                )
                 Spacer(modifier = Modifier.height(18.dp))
                 Button(
                     onClick = onGoToSetup,
@@ -428,7 +451,7 @@ fun FeaturePresetsPanel(
                 }
             }
         } else {
-            presets.forEach { preset ->
+            recents.forEach { preset ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -437,7 +460,7 @@ fun FeaturePresetsPanel(
                         .border(1.dp, MtBorder, RoundedCornerShape(14.dp))
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Box(
                         modifier = Modifier
@@ -450,9 +473,20 @@ fun FeaturePresetsPanel(
                         Icon(Icons.Rounded.PlayArrow, null, tint = Color.White, modifier = Modifier.size(20.dp))
                     }
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(preset.name, color = MtHi, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                        Text(preset.createdAt.take(10), color = MtMid, fontSize = 10.sp)
+                        Text(preset.name, color = MtHi, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
+                        Text(preset.createdAt.take(19).replace('T', ' '), color = MtMid, fontSize = 10.sp)
                     }
+                    Icon(
+                        Icons.Rounded.Save,
+                        contentDescription = "Save to Presets",
+                        tint = accent,
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(accent.copy(alpha = 0.14f))
+                            .clickable { openSaveDialog(preset) }
+                            .padding(8.dp),
+                    )
                     Icon(
                         Icons.Rounded.Settings,
                         null,
@@ -466,7 +500,7 @@ fun FeaturePresetsPanel(
                     )
                     Icon(
                         Icons.Rounded.Delete,
-                        contentDescription = "Delete preset",
+                        contentDescription = "Delete recent",
                         tint = Color(0xFFF87171),
                         modifier = Modifier
                             .size(34.dp)
@@ -479,7 +513,68 @@ fun FeaturePresetsPanel(
             }
         }
     }
+
+    val target = saveTarget
+    if (target != null) {
+        AlertDialog(
+            onDismissRequest = { saveTarget = null },
+            title = { Text("Save to Presets") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "This removes it from Recent and keeps it under the main Presets screen.",
+                        color = MtMid,
+                        fontSize = 12.sp,
+                    )
+                    OutlinedTextField(
+                        value = saveName,
+                        onValueChange = { saveName = it },
+                        singleLine = true,
+                        label = { Text("Preset name") },
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val name = saveName.trim()
+                        onSave(target, name)
+                        saveTarget = null
+                    },
+                ) {
+                    Text("Save", color = accent, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { saveTarget = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
 }
+
+/** @deprecated Use [FeatureRecentPanel]. */
+@Composable
+fun FeaturePresetsPanel(
+    featureLabel: String,
+    presets: List<MtPreset>,
+    accent: Color,
+    onGoToSetup: () -> Unit,
+    onLoad: (MtPreset) -> Unit,
+    onDelete: (MtPreset) -> Unit,
+    onRun: (MtPreset) -> Unit,
+    onSave: (MtPreset, String) -> Unit = { _, _ -> },
+) = FeatureRecentPanel(
+    featureLabel = featureLabel,
+    recents = presets,
+    accent = accent,
+    onGoToSetup = onGoToSetup,
+    onLoad = onLoad,
+    onDelete = onDelete,
+    onRun = onRun,
+    onSave = onSave,
+)
 
 /** Shared page wrapper matching extension feature pages. */
 @Composable
@@ -494,3 +589,5 @@ fun FeaturePageScaffold(
 
 val SingleTargetGradient = listOf(Color(0xFF06B6D4), Color(0xFF2563EB))
 val MultiTargetGradient = listOf(Color(0xFF10B981), Color(0xFF059669))
+val AutoRefreshGradient = listOf(Color(0xFFF59E0B), Color(0xFFEA580C))
+val FullPageScreenshotGradient = listOf(Color(0xFF06B6D4), Color(0xFF0891B2))

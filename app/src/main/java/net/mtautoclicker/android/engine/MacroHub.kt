@@ -11,7 +11,7 @@ import net.mtautoclicker.android.data.MacroStepKind
 import net.mtautoclicker.android.data.SavedMacro
 
 data class MacroSessionSnapshot(
-    val mode: MacroOverlayMode = MacroOverlayMode.RECORD_READY,
+    val mode: MacroOverlayMode = MacroOverlayMode.IDLE,
     val steps: List<MacroStep> = emptyList(),
     val stepCount: Int = 0,
     val isPlaying: Boolean = false,
@@ -78,9 +78,9 @@ object MacroHub {
         val now = System.currentTimeMillis()
         val last = pendingSteps.lastOrNull()
         val window = dedupeWindowMs ?: when (stepWithoutDelay.kind) {
-            MacroStepKind.TAP, MacroStepKind.LONG_PRESS -> 700L
+            MacroStepKind.TAP, MacroStepKind.LONG_PRESS -> 450L
             MacroStepKind.TYPE_TEXT -> 0L
-            else -> 120L
+            else -> 100L
         }
         if (window > 0L &&
             last != null &&

@@ -59,6 +59,7 @@ import kotlinx.serialization.json.Json
 import net.mtautoclicker.android.MtApplication
 import net.mtautoclicker.android.data.FeatureKind
 import net.mtautoclicker.android.data.MacroPlaybackConfig
+import net.mtautoclicker.android.data.PresetRepository
 import net.mtautoclicker.android.data.SavedMacro
 import net.mtautoclicker.android.engine.AutomationLauncher
 import net.mtautoclicker.android.engine.LaunchResult
@@ -191,7 +192,11 @@ fun MacroRecorderScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
                                 onPlay = { playMacro(it) },
                                 onSave = {
                                     saveTarget = it
-                                    presetName = it.name
+                                    presetName = PresetRepository.defaultSavedName(FeatureKind.MACRO_RECORDER)
+                                    scope.launch {
+                                        presetName = MtApplication.instance.presetRepository
+                                            .nextDefaultSavedName(FeatureKind.MACRO_RECORDER)
+                                    }
                                 },
                                 onDelete = { deleteTarget = it },
                             )
@@ -249,7 +254,11 @@ fun MacroRecorderScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
                             onPlay = { playMacro(it) },
                             onSave = {
                                 saveTarget = it
-                                presetName = it.name
+                                presetName = PresetRepository.defaultSavedName(FeatureKind.MACRO_RECORDER)
+                                scope.launch {
+                                    presetName = MtApplication.instance.presetRepository
+                                        .nextDefaultSavedName(FeatureKind.MACRO_RECORDER)
+                                }
                             },
                             onDelete = { deleteTarget = it },
                         )
@@ -322,9 +331,10 @@ fun MacroRecorderScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
             confirmButton = {
                 TextButton(
                     onClick = {
-                        val name = presetName.trim()
-                        if (name.isEmpty()) return@TextButton
                         scope.launch {
+                            val name = presetName.trim().ifBlank {
+                                MtApplication.instance.presetRepository.nextDefaultSavedName(FeatureKind.MACRO_RECORDER)
+                            }
                             val cfg = MacroPlaybackConfig(
                                 macroId = target.id,
                                 macroName = name,
@@ -336,7 +346,7 @@ fun MacroRecorderScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
                                 configJson = json.encodeToString(cfg),
                                 targets = emptyList(),
                             )
-                            Toast.makeText(context, "Preset saved", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Preset saved: $name", Toast.LENGTH_SHORT).show()
                             saveTarget = null
                         }
                     },

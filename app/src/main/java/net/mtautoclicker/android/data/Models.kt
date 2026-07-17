@@ -7,6 +7,8 @@ enum class FeatureKind {
     SINGLE_TARGET,
     MULTI_TARGET,
     MACRO_RECORDER,
+    FULL_PAGE_SCREENSHOT,
+    AUTO_REFRESH,
 }
 
 @Serializable
@@ -83,6 +85,31 @@ data class MultiTargetConfig(
         durationMs = 10_000L,
     ),
     val parallel: Boolean = false,
+)
+
+@Serializable
+data class FullPageScreenshotConfig(
+    /** Target app package to open before capture. */
+    val appPackage: String = "",
+    /** Legacy field — still read for older presets. */
+    val browserPackage: String = "",
+    val rememberChoice: Boolean = false,
+) {
+    fun resolvedPackage(): String = appPackage.ifBlank { browserPackage }
+}
+
+@Serializable
+data class AutoRefreshConfig(
+    val interval: IntervalConfig = IntervalConfig(
+        value = 5.0,
+        unit = IntervalUnit.S,
+    ),
+    val stop: StopCondition = StopCondition(
+        type = StopType.DURATION,
+        durationMs = 60_000L,
+    ),
+    val appPackage: String = "",
+    val rememberChoice: Boolean = false,
 )
 
 @Serializable

@@ -61,6 +61,8 @@ data class MacroPlaybackConfig(
 )
 
 enum class MacroOverlayMode {
+    /** No macro session — overlay should show nothing. */
+    IDLE,
     RECORD_READY,
     RECORDING,
     PLAYBACK,

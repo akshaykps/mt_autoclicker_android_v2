@@ -22,6 +22,10 @@ class SettingsRepository(private val context: Context) {
     private val deviceIdKey = stringPreferencesKey("device_id")
     private val analyticsKey = booleanPreferencesKey("analytics_enabled")
     private val themeKey = stringPreferencesKey("theme_preference")
+    private val preferredBrowserKey = stringPreferencesKey("preferred_browser_package")
+    private val rememberBrowserKey = booleanPreferencesKey("remember_browser_choice")
+    private val preferredRefreshAppKey = stringPreferencesKey("preferred_refresh_app_package")
+    private val rememberRefreshAppKey = booleanPreferencesKey("remember_refresh_app_choice")
 
     val deviceId = context.settingsDataStore.data.map { prefs ->
         prefs[deviceIdKey] ?: ""
@@ -38,6 +42,29 @@ class SettingsRepository(private val context: Context) {
             else -> ThemePreference.SYSTEM
         }
     }
+
+    val preferredAppPackage = context.settingsDataStore.data.map { prefs ->
+        prefs[preferredBrowserKey]
+    }
+
+    /** @deprecated Use [preferredAppPackage]. */
+    val preferredBrowserPackage = preferredAppPackage
+
+    val rememberAppChoice = context.settingsDataStore.data.map { prefs ->
+        prefs[rememberBrowserKey] ?: false
+    }
+
+    /** @deprecated Use [rememberAppChoice]. */
+    val rememberBrowserChoice = rememberAppChoice
+
+    val preferredRefreshAppPackage = context.settingsDataStore.data.map { prefs ->
+        prefs[preferredRefreshAppKey]
+    }
+
+    val rememberRefreshAppChoice = context.settingsDataStore.data.map { prefs ->
+        prefs[rememberRefreshAppKey] ?: false
+    }
+
 
     suspend fun getOrCreateDeviceId(): String {
         var result = ""
@@ -62,6 +89,32 @@ class SettingsRepository(private val context: Context) {
             }
         }
     }
+
+    suspend fun setPreferredApp(packageName: String?, remember: Boolean) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[rememberBrowserKey] = remember
+            if (remember && !packageName.isNullOrBlank()) {
+                prefs[preferredBrowserKey] = packageName
+            } else if (!remember) {
+                prefs.remove(preferredBrowserKey)
+            }
+        }
+    }
+
+    suspend fun setPreferredRefreshApp(packageName: String?, remember: Boolean) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[rememberRefreshAppKey] = remember
+            if (remember && !packageName.isNullOrBlank()) {
+                prefs[preferredRefreshAppKey] = packageName
+            } else if (!remember) {
+                prefs.remove(preferredRefreshAppKey)
+            }
+        }
+    }
+
+    /** @deprecated Use [setPreferredApp]. */
+    suspend fun setPreferredBrowser(packageName: String?, remember: Boolean) =
+        setPreferredApp(packageName, remember)
 
     fun osPlatformLabel(): String {
         val model = Build.MODEL.orEmpty()

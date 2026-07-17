@@ -35,6 +35,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -69,7 +70,7 @@ class MacroOverlayService : Service() {
     private var panelParams: WindowManager.LayoutParams? = null
     private var panelX = 0
     private var panelY = 0
-    private val relayMutex = kotlinx.coroutines.sync.Mutex()
+    private val relayMutex = Mutex()
     private var reattachJob: Job? = null
     @Volatile private var captureLocked = false
     @Volatile private var strokeOpen = false
@@ -77,6 +78,7 @@ class MacroOverlayService : Service() {
     private var typedTextBaseline: String? = null
     private var lastFlushedTypedText: String? = null
     private var imeLayoutJob: Job? = null
+    @Volatile private var isClosing = false
 
     private val strokePoints = mutableListOf<MacroPoint>()
     private var strokeStartElapsed = 0L
@@ -86,6 +88,7 @@ class MacroOverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        isClosing = false
         appWm = getSystemService(WINDOW_SERVICE) as WindowManager
         val dm = resources.displayMetrics
         panelX = (dm.widthPixels - dp(56)).coerceAtLeast(dp(12))
@@ -134,11 +137,7 @@ class MacroOverlayService : Service() {
                 cancelNotification(PLAYBACK_READY_NOTIFICATION_ID)
                 MacroPlaybackService.start(this)
             }
-            ACTION_CLOSE_SESSION -> {
-                cancelAllMacroNotifications()
-                MacroHub.reset()
-                stopSelf()
-            }
+            ACTION_CLOSE_SESSION -> closeMacroSession()
             else -> renderUi()
         }
         return START_NOT_STICKY
@@ -180,7 +179,21 @@ class MacroOverlayService : Service() {
         lastFlushedTypedText = null
     }
 
+    /** Tear down macro UI without flashing the record-ready popup. */
+    private fun closeMacroSession() {
+        isClosing = true
+        removePanel()
+        cancelAllMacroNotifications()
+        MacroHub.reset()
+        stopSelf()
+    }
+
     private fun renderUi(snap: MacroSessionSnapshot = MacroHub.snapshot.value) {
+        if (isClosing || snap.mode == MacroOverlayMode.IDLE) {
+            removePanel()
+            removeCapture()
+            return
+        }
         when {
             snap.mode == MacroOverlayMode.RECORDING -> {
                 removePanel()
@@ -339,10 +352,7 @@ class MacroOverlayService : Service() {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
                 typeface = Typeface.DEFAULT_BOLD
                 setPadding(dp(8), dp(16), dp(8), dp(16))
-                setOnClickListener {
-                    MacroHub.reset()
-                    stopSelf()
-                }
+                setOnClickListener { closeMacroSession() }
             },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
         )
@@ -477,11 +487,7 @@ class MacroOverlayService : Service() {
                 layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
                     gravity = Gravity.CENTER_HORIZONTAL
                 }
-                setOnClickListener {
-                    cancelAllMacroNotifications()
-                    MacroHub.reset()
-                    stopSelf()
-                }
+                setOnClickListener { closeMacroSession() }
             },
         )
 
@@ -572,14 +578,13 @@ class MacroOverlayService : Service() {
                     strokePoints.clear()
                     val step = MacroGestureCoalescer.coalesce(points, duration, density)
                     if (step != null) {
-                        // Flush any native keyboard text before this UI gesture.
-                        flushTypedTextIfNeeded()
+                        // Fully remove overlay now — FLAG_NOT_TOUCHABLE is unreliable on OxygenOS
+                        // and caused missed taps (felt even more laggy).
                         detachCaptureOverlayNow()
                         queueLiveRelay(step)
                     }
                     true
                 }
-                // OEM cancel after FLAG flips must NOT become a second recorded tap.
                 MotionEvent.ACTION_CANCEL -> {
                     strokeOpen = false
                     strokePoints.clear()
@@ -602,24 +607,24 @@ class MacroOverlayService : Service() {
         imeLayoutJob?.cancel()
         imeLayoutJob = scope.launch {
             while (MacroHub.snapshot.value.mode == MacroOverlayMode.RECORDING) {
+                delay(800)
                 refreshImeCaptureBounds()
                 syncTypedTextFromField()
-                delay(350)
             }
         }
     }
 
     /**
-     * Live handoff while recording (UI region only — keyboard is native pass-through):
-     * 1) Detach capture overlay immediately
-     * 2) Replay the gesture once via Accessibility
-     * 3) Re-attach after a short idle (app-open grace), shaped around IME bounds
+     * Reliable live handoff for OxygenOS:
+     * 1) Overlay already removed on finger-up
+     * 2) Await a short Accessibility reinject (so the tap actually lands)
+     * 3) Put capture back immediately — no long idle window
      */
     private fun queueLiveRelay(step: MacroStep) {
         val accepted = MacroHub.appendStep(step)
         reattachJob?.cancel()
         if (!accepted) {
-            scheduleCaptureReattach()
+            scheduleCaptureReattach(40L)
             return
         }
         scope.launch {
@@ -628,23 +633,21 @@ class MacroOverlayService : Service() {
                 captureLocked = true
                 try {
                     detachCaptureOverlayNow()
-                    delay(8)
+                    delay(6)
                     val timeoutMs = when (step.kind) {
-                        MacroStepKind.SWIPE, MacroStepKind.PATH -> 480L
-                        MacroStepKind.LONG_PRESS -> 650L
-                        MacroStepKind.TYPE_TEXT -> 200L
-                        else -> 280L
+                        MacroStepKind.SWIPE, MacroStepKind.PATH -> 220L
+                        MacroStepKind.LONG_PRESS -> 320L
+                        else -> 140L
                     }
-                    withContext(Dispatchers.Default) {
-                        withTimeoutOrNull(timeoutMs) {
-                            MtAccessibilityService.instance?.performMacroStepLive(step)
-                        }
+                    withTimeoutOrNull(timeoutMs) {
+                        MtAccessibilityService.instance?.performMacroStepLive(step)
                     }
+                    delay(12)
                 } finally {
                     captureLocked = false
+                    reattachCaptureOverlay()
                 }
             }
-            scheduleCaptureReattach()
         }
     }
 
@@ -655,14 +658,12 @@ class MacroOverlayService : Service() {
         }
     }
 
-    private fun scheduleCaptureReattach() {
+    private fun scheduleCaptureReattach(delayMs: Long) {
         reattachJob?.cancel()
         reattachJob = scope.launch {
-            delay(200)
+            if (delayMs > 0) delay(delayMs)
             if (MacroHub.snapshot.value.mode != MacroOverlayMode.RECORDING) return@launch
-            relayMutex.withLock {
-                reattachCaptureOverlay()
-            }
+            relayMutex.withLock { reattachCaptureOverlay() }
         }
     }
 
@@ -680,18 +681,6 @@ class MacroOverlayService : Service() {
         }
         captureLocked = false
         refreshImeCaptureBounds()
-    }
-
-    private fun setCaptureTouchable(touchable: Boolean) {
-        val overlay = captureOverlay ?: return
-        val params = captureParams ?: return
-        if (overlay.parent == null) return
-        var flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-        if (!touchable) flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        params.flags = flags
-        runCatching { wm().updateViewLayout(overlay, params) }
     }
 
     // ── Notifications (styled one-line custom view) ───────────────────────

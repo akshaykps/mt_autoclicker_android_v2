@@ -33,13 +33,14 @@ import kotlinx.serialization.json.Json
 import net.mtautoclicker.android.MtApplication
 import net.mtautoclicker.android.data.FeatureKind
 import net.mtautoclicker.android.data.MultiTargetConfig
+import net.mtautoclicker.android.data.PresetRepository
 import net.mtautoclicker.android.engine.AutomationLauncher
 import net.mtautoclicker.android.engine.LaunchResult
 import net.mtautoclicker.android.engine.formatInterval
 import net.mtautoclicker.android.engine.formatStopSummary
 import net.mtautoclicker.android.ui.components.ExtensionStyleFeatureHero
 import net.mtautoclicker.android.ui.components.FeaturePageScaffold
-import net.mtautoclicker.android.ui.components.FeaturePresetsPanel
+import net.mtautoclicker.android.ui.components.FeatureRecentPanel
 import net.mtautoclicker.android.ui.components.FeatureStepUi
 import net.mtautoclicker.android.ui.components.FeatureTab
 import net.mtautoclicker.android.ui.components.FeatureTabBar
@@ -59,7 +60,9 @@ fun MultiTargetScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
     var starting by remember { mutableStateOf(false) }
     val json = remember { Json { encodeDefaults = true } }
     val allPresets by MtApplication.instance.presetRepository.presets.collectAsState(initial = emptyList())
-    val presets = remember(allPresets) { allPresets.filter { it.feature == FeatureKind.MULTI_TARGET } }
+    val recents = remember(allPresets) {
+        allPresets.filter { it.feature == FeatureKind.MULTI_TARGET && PresetRepository.isRecent(it) }
+    }
     val scrollState = rememberScrollState()
     var settingsY by remember { mutableIntStateOf(0) }
 
@@ -135,11 +138,11 @@ fun MultiTargetScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
             )
 
             Spacer(modifier = Modifier.height(4.dp))
-            Text("Tip: after you Play, a Recent preset is saved automatically. You can also tap Save on the float bar.", color = MtMid)
+            Text("Tip: after you Play, a Recent entry is saved automatically. Save any one to keep it under Presets, or tap Save on the float bar.", color = MtMid)
         } else {
-            FeaturePresetsPanel(
+            FeatureRecentPanel(
                 featureLabel = "Multi Target",
-                presets = presets,
+                recents = recents,
                 accent = MultiTargetGradient.first(),
                 onGoToSetup = { tab = FeatureTab.SETUP },
                 onLoad = { preset ->
@@ -161,6 +164,12 @@ fun MultiTargetScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
                             LaunchResult.Ok -> Unit
                             is LaunchResult.NeedsPermissions -> onNeedsPermissions()
                         }
+                    }
+                },
+                onSave = { preset, name ->
+                    scope.launch {
+                        MtApplication.instance.presetRepository.promoteRecentToSaved(preset.id, name)
+                        Toast.makeText(context, "Saved to Presets", Toast.LENGTH_SHORT).show()
                     }
                 },
             )

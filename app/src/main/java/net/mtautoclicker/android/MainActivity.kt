@@ -22,6 +22,8 @@ import androidx.core.content.ContextCompat
 import net.mtautoclicker.android.data.ThemePreference
 import net.mtautoclicker.android.engine.AutomationLauncher
 import net.mtautoclicker.android.ui.screens.AppRoute
+import net.mtautoclicker.android.ui.screens.AutoRefreshScreen
+import net.mtautoclicker.android.ui.screens.FullPageScreenshotScreen
 import net.mtautoclicker.android.ui.screens.HomeScreen
 import net.mtautoclicker.android.ui.screens.MacroRecorderScreen
 import net.mtautoclicker.android.ui.screens.MultiTargetScreen
@@ -59,6 +61,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus) return
+        // Dismiss screenshot float bar when user is actually looking at MT Auto Clicker.
+        // Delayed so brief focus flickers after permission / browser launch don't cancel the session.
+        window.decorView.postDelayed({
+            if (!isFinishing && hasWindowFocus()) {
+                AutomationLauncher.onMainAppForeground(this)
+            }
+        }, 450)
+    }
+
     private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         val granted = ContextCompat.checkSelfPermission(
@@ -90,6 +104,14 @@ private fun MtAppRoot(version: String, onKillAll: () -> Unit) {
             onNeedsPermissions = { route = AppRoute.PERMISSIONS },
         )
         AppRoute.MACRO_RECORDER -> MacroRecorderScreen(
+            onBack = { route = AppRoute.HOME },
+            onNeedsPermissions = { route = AppRoute.PERMISSIONS },
+        )
+        AppRoute.FULL_PAGE_SCREENSHOT -> FullPageScreenshotScreen(
+            onBack = { route = AppRoute.HOME },
+            onNeedsPermissions = { route = AppRoute.PERMISSIONS },
+        )
+        AppRoute.AUTO_REFRESH -> AutoRefreshScreen(
             onBack = { route = AppRoute.HOME },
             onNeedsPermissions = { route = AppRoute.PERMISSIONS },
         )

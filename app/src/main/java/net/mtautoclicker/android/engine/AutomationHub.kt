@@ -110,6 +110,8 @@ object AutomationHub {
         FeatureKind.SINGLE_TARGET -> "Single Target"
         FeatureKind.MULTI_TARGET -> "Multi Target"
         FeatureKind.MACRO_RECORDER -> "Macro Recorder"
+        FeatureKind.FULL_PAGE_SCREENSHOT -> "Full Page Screenshot"
+        FeatureKind.AUTO_REFRESH -> "Auto Refresh"
         null -> null
     }
 }

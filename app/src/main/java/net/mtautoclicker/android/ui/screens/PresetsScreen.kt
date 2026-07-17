@@ -20,7 +20,9 @@ import androidx.compose.material.icons.rounded.AdsClick
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import net.mtautoclicker.android.MtApplication
+import net.mtautoclicker.android.data.AutoRefreshConfig
 import net.mtautoclicker.android.data.FeatureKind
 import net.mtautoclicker.android.data.MacroPlaybackConfig
 import net.mtautoclicker.android.data.MtPreset
@@ -61,13 +64,13 @@ import net.mtautoclicker.android.ui.theme.MtMid
 import net.mtautoclicker.android.ui.theme.MtPurple
 import net.mtautoclicker.android.ui.theme.MtRow
 
-private enum class PresetFilter { ALL, SINGLE, MULTI, MACRO }
+private enum class PresetFilter { ALL, SINGLE, MULTI, MACRO, SCREENSHOT, REFRESH }
 
 @Composable
 fun PresetsScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val presets by MtApplication.instance.presetRepository.presets.collectAsState(initial = emptyList())
+    val presets by MtApplication.instance.presetRepository.savedPresets.collectAsState(initial = emptyList())
     val json = remember { Json { ignoreUnknownKeys = true } }
     var filter by remember { mutableStateOf(PresetFilter.ALL) }
 
@@ -77,6 +80,8 @@ fun PresetsScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
             PresetFilter.SINGLE -> presets.filter { it.feature == FeatureKind.SINGLE_TARGET }
             PresetFilter.MULTI -> presets.filter { it.feature == FeatureKind.MULTI_TARGET }
             PresetFilter.MACRO -> presets.filter { it.feature == FeatureKind.MACRO_RECORDER }
+            PresetFilter.SCREENSHOT -> presets.filter { it.feature == FeatureKind.FULL_PAGE_SCREENSHOT }
+            PresetFilter.REFRESH -> presets.filter { it.feature == FeatureKind.AUTO_REFRESH }
         }
     }
 
@@ -102,9 +107,9 @@ fun PresetsScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
                 Icon(Icons.Rounded.Bookmark, null, tint = MtEmerald, modifier = Modifier.size(22.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text("Saved & recent", color = MtHi, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text("Saved presets", color = MtHi, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 Text(
-                    "${presets.size} preset${if (presets.size == 1) "" else "s"} ready to run",
+                    "${presets.size} saved · open a feature’s Recent tab to save more",
                     color = MtMid,
                     fontSize = 12.sp,
                 )
@@ -117,6 +122,10 @@ fun PresetsScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
             FilterChip("Single", filter == PresetFilter.SINGLE) { filter = PresetFilter.SINGLE }
             FilterChip("Multi", filter == PresetFilter.MULTI) { filter = PresetFilter.MULTI }
             FilterChip("Macro", filter == PresetFilter.MACRO) { filter = PresetFilter.MACRO }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip("Screenshot", filter == PresetFilter.SCREENSHOT) { filter = PresetFilter.SCREENSHOT }
+            FilterChip("Refresh", filter == PresetFilter.REFRESH) { filter = PresetFilter.REFRESH }
         }
 
         if (filtered.isEmpty()) {
@@ -136,10 +145,10 @@ fun PresetsScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
                     modifier = Modifier.size(48.dp),
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                Text("No presets here", color = MtHi, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text("No saved presets yet", color = MtHi, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    "Run Single or Multi Target once — a Recent preset is saved automatically. Or tap Save on the float bar.",
+                    "Run a feature, open its Recent tab, then tap Save on a run you want to keep here.",
                     color = MtMid,
                     fontSize = 12.sp,
                     textAlign = TextAlign.Center,
@@ -186,6 +195,25 @@ fun PresetsScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
                                         is LaunchResult.NeedsPermissions -> onNeedsPermissions()
                                     }
                                 }
+                                FeatureKind.FULL_PAGE_SCREENSHOT -> {
+                                    val cfg = json.decodeFromString<net.mtautoclicker.android.data.FullPageScreenshotConfig>(preset.configJson)
+                                    val pkg = cfg.resolvedPackage()
+                                    if (pkg.isBlank()) {
+                                        Toast.makeText(context, "Preset has no app", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        when (AutomationLauncher.startFullPageScreenshot(context, pkg)) {
+                                            LaunchResult.Ok -> Toast.makeText(context, "Loaded ${preset.name}", Toast.LENGTH_SHORT).show()
+                                            is LaunchResult.NeedsPermissions -> onNeedsPermissions()
+                                        }
+                                    }
+                                }
+                                FeatureKind.AUTO_REFRESH -> {
+                                    val cfg = json.decodeFromString<AutoRefreshConfig>(preset.configJson)
+                                    when (AutomationLauncher.startAutoRefresh(context, cfg)) {
+                                        LaunchResult.Ok -> Toast.makeText(context, "Loaded ${preset.name}", Toast.LENGTH_SHORT).show()
+                                        is LaunchResult.NeedsPermissions -> onNeedsPermissions()
+                                    }
+                                }
                             }
                         }
                     },
@@ -223,16 +251,22 @@ private fun PresetListCard(
     val accent = when (preset.feature) {
         FeatureKind.MULTI_TARGET -> MtPurple
         FeatureKind.MACRO_RECORDER -> Color(0xFFF43F5E)
+        FeatureKind.FULL_PAGE_SCREENSHOT -> Color(0xFF0EA5E9)
+        FeatureKind.AUTO_REFRESH -> Color(0xFFF59E0B)
         FeatureKind.SINGLE_TARGET -> MtBlue
     }
     val icon = when (preset.feature) {
         FeatureKind.MULTI_TARGET -> Icons.Rounded.GridView
         FeatureKind.MACRO_RECORDER -> Icons.Rounded.PlayArrow
+        FeatureKind.FULL_PAGE_SCREENSHOT -> Icons.Rounded.PhotoCamera
+        FeatureKind.AUTO_REFRESH -> Icons.Rounded.Refresh
         FeatureKind.SINGLE_TARGET -> Icons.Rounded.AdsClick
     }
     val featureLabel = when (preset.feature) {
         FeatureKind.MULTI_TARGET -> "Multi Target"
         FeatureKind.MACRO_RECORDER -> "Macro"
+        FeatureKind.FULL_PAGE_SCREENSHOT -> "Screenshot"
+        FeatureKind.AUTO_REFRESH -> "Refresh"
         FeatureKind.SINGLE_TARGET -> "Single Target"
     }
     val targetCount = preset.targets.size
