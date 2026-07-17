@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">MT Auto Clicker</string>
-    <string name="accessibility_service_description">MT Auto Clicker uses Accessibility to perform taps and clicks at positions you choose on screen. This is required for automation outside the browser on Chrome OS and Android. MT Auto Clicker only clicks where you place targets — it does not read passwords or personal data.</string>
+    <string name="accessibility_service_description">MT Auto Clicker uses Accessibility to perform taps, gestures, and system navigation (Back / Home / Recents) for macros you record. It only acts where you place targets or where your macro steps say — it does not read passwords or personal data.</string>
     <string name="overlay_permission_title">Display over other apps</string>
     <string name="overlay_permission_body">Allow MT Auto Clicker to show the floating control bar while you automate other apps.</string>
     <string name="accessibility_permission_title">Accessibility service</string>

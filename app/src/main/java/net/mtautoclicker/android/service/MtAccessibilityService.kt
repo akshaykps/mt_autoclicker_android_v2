@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
@@ -15,10 +16,12 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import net.mtautoclicker.android.data.MacroOverlayMode
 import net.mtautoclicker.android.data.MacroPoint
 import net.mtautoclicker.android.data.MacroStep
 import net.mtautoclicker.android.data.MacroStepKind
 import net.mtautoclicker.android.data.MouseButton
+import net.mtautoclicker.android.engine.MacroHub
 import kotlin.coroutines.resume
 import kotlin.random.Random
 
@@ -30,13 +33,87 @@ class MtAccessibilityService : AccessibilityService() {
     var onWindowsOrFocusChanged: (() -> Unit)? = null
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        when (event?.eventType) {
+        val e = event ?: return
+        when (e.eventType) {
             AccessibilityEvent.TYPE_WINDOWS_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
             AccessibilityEvent.TYPE_VIEW_FOCUSED,
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
             -> onWindowsOrFocusChanged?.invoke()
+            AccessibilityEvent.TYPE_VIEW_CLICKED -> maybeRecordNavFromClick(e)
         }
+    }
+
+    /**
+     * Soft nav bar buttons (3-button mode) often never deliver KEYCODE_*.
+     * Capture them from SystemUI click events instead.
+     */
+    private fun maybeRecordNavFromClick(event: AccessibilityEvent) {
+        if (MacroHub.snapshot.value.mode != MacroOverlayMode.RECORDING) return
+        val kind = resolveNavKind(event) ?: return
+        MacroHub.appendStep(
+            MacroStep(kind = kind, delayMs = 0L, durationMs = 50L),
+            dedupeWindowMs = 500L,
+        )
+    }
+
+    private fun resolveNavKind(event: AccessibilityEvent): MacroStepKind? {
+        val viewId = runCatching { event.source?.viewIdResourceName }.getOrNull().orEmpty().lowercase()
+        val pkg = event.packageName?.toString().orEmpty().lowercase()
+        val desc = buildString {
+            append(event.contentDescription ?: "")
+            append(' ')
+            event.text?.forEach { append(it); append(' ') }
+            append(event.className ?: "")
+            append(' ')
+            append(viewId)
+        }.lowercase()
+
+        val looksLikeSystemUi =
+            pkg.contains("systemui") ||
+                pkg.contains("navigationbar") ||
+                viewId.contains("systemui") ||
+                viewId.contains("navigation")
+
+        // Prefer view-id matches (most reliable on AOSP / ColorOS).
+        when {
+            viewId.endsWith("/back") || viewId.contains(":id/back") -> return MacroStepKind.GLOBAL_BACK
+            viewId.endsWith("/home") || viewId.contains(":id/home") -> return MacroStepKind.GLOBAL_HOME
+            viewId.contains("recent") || viewId.contains("overview") ||
+                viewId.contains("app_switch") -> return MacroStepKind.GLOBAL_RECENTS
+        }
+
+        if (!looksLikeSystemUi && viewId.isBlank()) {
+            // Still allow content-description matches from SystemUI-like labels.
+        }
+
+        return when {
+            desc.contains("recent") || desc.contains("overview") ||
+                desc.contains("app switch") || desc.contains("任务") -> MacroStepKind.GLOBAL_RECENTS
+            Regex("""\bhome\b|主屏幕|桌面""").containsMatchIn(desc) -> MacroStepKind.GLOBAL_HOME
+            Regex("""\bback\b|返回""").containsMatchIn(desc) -> MacroStepKind.GLOBAL_BACK
+            else -> null
+        }
+    }
+
+    /**
+     * Capture Back / Home / Recents while macro recording.
+     * Must not consume the event (return false) so the system still handles navigation.
+     */
+    override fun onKeyEvent(event: KeyEvent): Boolean {
+        if (event.action != KeyEvent.ACTION_DOWN) return false
+        if (MacroHub.snapshot.value.mode != MacroOverlayMode.RECORDING) return false
+        val kind = when (event.keyCode) {
+            KeyEvent.KEYCODE_BACK -> MacroStepKind.GLOBAL_BACK
+            KeyEvent.KEYCODE_HOME -> MacroStepKind.GLOBAL_HOME
+            KeyEvent.KEYCODE_APP_SWITCH -> MacroStepKind.GLOBAL_RECENTS
+            else -> return false
+        }
+        MacroHub.appendStep(
+            MacroStep(kind = kind, delayMs = 0L, durationMs = 50L),
+            dedupeWindowMs = 400L,
+        )
+        return false
     }
 
     override fun onInterrupt() = Unit
@@ -70,6 +147,17 @@ class MtAccessibilityService : AccessibilityService() {
         }
     }
 
+    fun performGlobalNav(kind: MacroStepKind): Boolean {
+        val action = when (kind) {
+            MacroStepKind.GLOBAL_BACK -> GLOBAL_ACTION_BACK
+            MacroStepKind.GLOBAL_HOME -> GLOBAL_ACTION_HOME
+            MacroStepKind.GLOBAL_RECENTS -> GLOBAL_ACTION_RECENTS
+            MacroStepKind.GLOBAL_NOTIFICATIONS -> GLOBAL_ACTION_NOTIFICATIONS
+            else -> return false
+        }
+        return runCatching { performGlobalAction(action) }.getOrDefault(false)
+    }
+
     suspend fun performMacroStep(step: MacroStep): Boolean {
         return when (step.kind) {
             MacroStepKind.TAP -> {
@@ -95,6 +183,11 @@ class MtAccessibilityService : AccessibilityService() {
                 dispatchPath(pts, step.durationMs.coerceIn(80L, 3500L))
             }
             MacroStepKind.TYPE_TEXT -> setFocusedEditableText(step.text.orEmpty())
+            MacroStepKind.GLOBAL_BACK,
+            MacroStepKind.GLOBAL_HOME,
+            MacroStepKind.GLOBAL_RECENTS,
+            MacroStepKind.GLOBAL_NOTIFICATIONS,
+            -> performGlobalNav(step.kind)
         }
     }
 
@@ -127,6 +220,11 @@ class MtAccessibilityService : AccessibilityService() {
                 dispatchPath(pts, step.durationMs.coerceIn(80L, 200L), timeoutMs = 220L)
             }
             MacroStepKind.TYPE_TEXT -> setFocusedEditableText(step.text.orEmpty())
+            MacroStepKind.GLOBAL_BACK,
+            MacroStepKind.GLOBAL_HOME,
+            MacroStepKind.GLOBAL_RECENTS,
+            MacroStepKind.GLOBAL_NOTIFICATIONS,
+            -> performGlobalNav(step.kind)
         }
     }
 

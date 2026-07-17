@@ -125,6 +125,11 @@ class MacroPlaybackService : Service() {
                     // Let the target app/IME finish handling before the next stroke.
                     val settle = when (step.kind) {
                         MacroStepKind.TYPE_TEXT -> (80L / speed).toLong().coerceIn(60L, 160L)
+                        MacroStepKind.GLOBAL_BACK,
+                        MacroStepKind.GLOBAL_HOME,
+                        MacroStepKind.GLOBAL_RECENTS,
+                        MacroStepKind.GLOBAL_NOTIFICATIONS,
+                        -> (280L / speed).toLong().coerceIn(180L, 450L)
                         else -> (18L / speed).toLong().coerceIn(12L, 40L)
                     }
                     delay(settle)

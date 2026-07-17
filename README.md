@@ -19,6 +19,8 @@ System-wide auto clicker for **Chromebooks** (Google Play) and **Android phones/
 
 ## Build
 
+See **[BUILD.md](BUILD.md)** for full commands: build, scan devices, USB/wireless install, and launch.
+
 ```bash
 cd mt-autoclicker-android
 export ANDROID_HOME="$HOME/Library/Android/sdk"   # adjust if needed

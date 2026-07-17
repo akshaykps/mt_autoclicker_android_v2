@@ -168,6 +168,14 @@ object AutomationLauncher {
         if (AutoRefreshHub.shouldAutoDismissOnMainApp()) {
             dismissRefreshSession(context)
         }
+        if (AutomationHub.shouldAutoDismissOnMainApp()) {
+            dismissClickSession(context)
+            AutomationHub.stopAll()
+        }
+        if (MacroHub.shouldAutoDismissOnMainApp()) {
+            dismissMacroSession(context)
+            MacroHub.reset()
+        }
     }
 
     fun featureKind(plan: AutomationPlan?): FeatureKind? = plan?.feature

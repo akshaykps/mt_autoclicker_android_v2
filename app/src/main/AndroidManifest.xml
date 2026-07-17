@@ -40,12 +40,37 @@
             android:exported="true"
             android:configChanges="keyboard|keyboardHidden|navigation|screenSize|smallestScreenSize|orientation|screenLayout"
             android:resizeableActivity="true"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Default home-screen / status-bar app icon (OxygenOS uses launcher icon). -->
+        <activity-alias
+            android:name=".LauncherDefault"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+
+        <!-- Shown while macro recording so status bar can use a camera tile. -->
+        <activity-alias
+            android:name=".LauncherRecording"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/ic_launcher_recording"
+            android:label="@string/app_name"
+            android:roundIcon="@drawable/ic_launcher_recording"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <activity
             android:name=".ScreenCapturePermissionActivity"
@@ -96,6 +121,7 @@
         <service
             android:name=".service.MacroOverlayService"
             android:exported="false"
+            android:icon="@drawable/ic_stat_recording"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"

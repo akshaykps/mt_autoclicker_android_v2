@@ -22,6 +22,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RemoteViews
 import android.widget.TextView
@@ -42,6 +43,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import net.mtautoclicker.android.MainActivity
 import net.mtautoclicker.android.MtApplication
 import net.mtautoclicker.android.R
+import net.mtautoclicker.android.data.LauncherIconHelper
 import net.mtautoclicker.android.data.MacroOverlayMode
 import net.mtautoclicker.android.data.MacroPoint
 import net.mtautoclicker.android.data.MacroStep
@@ -49,6 +51,7 @@ import net.mtautoclicker.android.data.MacroStepKind
 import net.mtautoclicker.android.engine.MacroGestureCoalescer
 import net.mtautoclicker.android.engine.MacroHub
 import net.mtautoclicker.android.engine.MacroSessionSnapshot
+import net.mtautoclicker.android.engine.NavEdgeBands
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -56,7 +59,8 @@ import java.util.Locale
 /**
  * Macro UI:
  * - Ready: system-style "Start recording?" popup
- * - Recording: invisible capture + system ongoing notification (status-bar icon / chronometer)
+ * - Recording: full-screen capture guide + notification (+ floating REC chip on OEMs
+ *   that force the app icon into the status bar)
  * - Idle playback: vertical chip + Play notification
  */
 class MacroOverlayService : Service() {
@@ -67,13 +71,19 @@ class MacroOverlayService : Service() {
     private var panelRoot: View? = null
     private var captureOverlay: FrameLayout? = null
     private var captureParams: WindowManager.LayoutParams? = null
+    private var captureGuide: CaptureGuideView? = null
+    private var recChipRoot: View? = null
+    private var recChipParams: WindowManager.LayoutParams? = null
     private var panelParams: WindowManager.LayoutParams? = null
     private var panelX = 0
     private var panelY = 0
     private val relayMutex = Mutex()
     private var reattachJob: Job? = null
+    private var recordNotifRefreshJob: Job? = null
     @Volatile private var captureLocked = false
+    @Volatile private var captureLockedAtElapsed = 0L
     @Volatile private var strokeOpen = false
+    @Volatile private var recordingFgStarted = false
     private var lastNotifiedStepCount = -1
     private var typedTextBaseline: String? = null
     private var lastFlushedTypedText: String? = null
@@ -82,6 +92,9 @@ class MacroOverlayService : Service() {
 
     private val strokePoints = mutableListOf<MacroPoint>()
     private var strokeStartElapsed = 0L
+    /** Points for the stroke currently being finalized (for guide markers). */
+    private var lastStrokePoints: List<MacroPoint> = emptyList()
+    private var navEdges: NavEdgeBands? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -91,7 +104,7 @@ class MacroOverlayService : Service() {
         isClosing = false
         appWm = getSystemService(WINDOW_SERVICE) as WindowManager
         val dm = resources.displayMetrics
-        panelX = (dm.widthPixels - dp(56)).coerceAtLeast(dp(12))
+        panelX = (dm.widthPixels - dp(48)).coerceAtLeast(dp(12))
         panelY = dp(120)
         MtAccessibilityService.instance?.onWindowsOrFocusChanged = {
             scope.launch { onAccessibilityChromeChanged() }
@@ -138,6 +151,10 @@ class MacroOverlayService : Service() {
                 MacroPlaybackService.start(this)
             }
             ACTION_CLOSE_SESSION -> closeMacroSession()
+            ACTION_RECORD_BACK -> recordAndPerformGlobal(MacroStepKind.GLOBAL_BACK)
+            ACTION_RECORD_HOME -> recordAndPerformGlobal(MacroStepKind.GLOBAL_HOME)
+            ACTION_RECORD_RECENTS -> recordAndPerformGlobal(MacroStepKind.GLOBAL_RECENTS)
+            ACTION_RECORD_NOTIFICATIONS -> recordAndPerformGlobal(MacroStepKind.GLOBAL_NOTIFICATIONS)
             else -> renderUi()
         }
         return START_NOT_STICKY
@@ -153,8 +170,12 @@ class MacroOverlayService : Service() {
 
     private fun teardown() {
         imeLayoutJob?.cancel()
+        recordNotifRefreshJob?.cancel()
+        stopRecordingForeground()
+        LauncherIconHelper.setRecordingIcon(this, recording = false)
         cancelAllMacroNotifications()
         removeCapture()
+        removeRecChip()
         removePanel()
         MacroPlaybackService.stop(this)
     }
@@ -173,16 +194,28 @@ class MacroOverlayService : Service() {
         captureOverlay?.let { runCatching { wm().removeView(it) } }
         captureOverlay = null
         captureParams = null
+        captureGuide = null
         captureLocked = false
         strokeOpen = false
         typedTextBaseline = null
         lastFlushedTypedText = null
+        lastStrokePoints = emptyList()
+    }
+
+    private fun removeRecChip() {
+        recChipRoot?.let { runCatching { wm().removeView(it) } }
+        recChipRoot = null
+        recChipParams = null
     }
 
     /** Tear down macro UI without flashing the record-ready popup. */
     private fun closeMacroSession() {
         isClosing = true
         removePanel()
+        removeRecChip()
+        recordNotifRefreshJob?.cancel()
+        stopRecordingForeground()
+        LauncherIconHelper.setRecordingIcon(this, recording = false)
         cancelAllMacroNotifications()
         MacroHub.reset()
         stopSelf()
@@ -198,24 +231,50 @@ class MacroOverlayService : Service() {
             snap.mode == MacroOverlayMode.RECORDING -> {
                 removePanel()
                 if (captureOverlay == null) showCaptureOverlay()
+                showRecChip()
                 bindAccessibilityChromeListener()
                 refreshImeCaptureBounds()
+                LauncherIconHelper.setRecordingIcon(this, recording = true)
                 postRecordingNotification(snap)
+                // OxygenOS often caches the status-bar icon — refresh after launcher swap.
+                recordNotifRefreshJob?.cancel()
+                recordNotifRefreshJob = scope.launch {
+                    delay(280)
+                    if (MacroHub.snapshot.value.mode == MacroOverlayMode.RECORDING) {
+                        postRecordingNotification(MacroHub.snapshot.value)
+                    }
+                    delay(500)
+                    if (MacroHub.snapshot.value.mode == MacroOverlayMode.RECORDING) {
+                        postRecordingNotification(MacroHub.snapshot.value)
+                    }
+                }
             }
             snap.mode == MacroOverlayMode.PLAYBACK && snap.isPlaying -> {
                 removePanel()
                 removeCapture()
+                removeRecChip()
+                recordNotifRefreshJob?.cancel()
+                stopRecordingForeground()
+                LauncherIconHelper.setRecordingIcon(this, recording = false)
                 cancelNotification(RECORD_NOTIFICATION_ID)
                 cancelNotification(PLAYBACK_READY_NOTIFICATION_ID)
             }
             snap.mode == MacroOverlayMode.RECORD_READY -> {
                 removeCapture()
+                removeRecChip()
+                recordNotifRefreshJob?.cancel()
+                stopRecordingForeground()
+                LauncherIconHelper.setRecordingIcon(this, recording = false)
                 cancelNotification(RECORD_NOTIFICATION_ID)
                 cancelNotification(PLAYBACK_READY_NOTIFICATION_ID)
                 showStartRecordPopup()
             }
             snap.mode == MacroOverlayMode.PLAYBACK -> {
                 removeCapture()
+                removeRecChip()
+                recordNotifRefreshJob?.cancel()
+                stopRecordingForeground()
+                LauncherIconHelper.setRecordingIcon(this, recording = false)
                 cancelNotification(RECORD_NOTIFICATION_ID)
                 showVerticalPlaybackChip(snap)
                 postPlaybackReadyNotification(snap)
@@ -232,20 +291,34 @@ class MacroOverlayService : Service() {
     private fun onAccessibilityChromeChanged() {
         if (MacroHub.snapshot.value.mode != MacroOverlayMode.RECORDING) return
         refreshImeCaptureBounds()
-        // Keep typed message in sync while keyboard is open (native typing).
+        // After Recents/Home/Notif, reclaim the capture surface if SystemUI covered it.
+        if (captureOverlay?.parent == null) {
+            reattachCaptureOverlay()
+        }
+        captureGuide?.refreshGestureExclusion()
+        if (recChipRoot?.parent == null) showRecChip()
         syncTypedTextFromField()
     }
 
     /**
-     * Leave the soft-keyboard region uncovered so typing is native & snappy.
-     * Capture overlay only covers the area above the IME.
+     * Full-bleed capture during recording (status bar + nav edges included) so
+     * edge/top/bottom system gestures can be seen by the overlay.
+     * Soft keyboard still shrinks the overlay so typing stays native.
      */
+    private fun refreshNavEdges() {
+        val bands = NavEdgeBands.resolve(this, wm())
+        navEdges = bands
+        captureGuide?.setEdgeBands(bands)
+    }
+
     private fun refreshImeCaptureBounds() {
         val overlay = captureOverlay ?: return
         val params = captureParams ?: return
         if (overlay.parent == null) return
-        val screenH = resources.displayMetrics.heightPixels
-        val screenW = resources.displayMetrics.widthPixels
+        refreshNavEdges()
+        val edges = navEdges
+        val screenW = edges?.screenW ?: fullDisplaySize().first
+        val screenH = edges?.screenH ?: fullDisplaySize().second
         val ime = MtAccessibilityService.instance?.inputMethodBounds()
         val newHeight = if (ime != null && ime.top in 1 until screenH && ime.height() > dp(100)) {
             if (typedTextBaseline == null) {
@@ -254,19 +327,23 @@ class MacroOverlayService : Service() {
             }
             ime.top
         } else {
-            // Keyboard closed — flush any typed text, restore full-screen capture.
             flushTypedTextIfNeeded()
             typedTextBaseline = null
-            WindowManager.LayoutParams.MATCH_PARENT
+            screenH
         }
-        if (params.width != screenW || params.height != newHeight) {
+        if (params.width != screenW || params.height != newHeight || params.x != 0 || params.y != 0) {
             params.width = screenW
             params.height = newHeight
             params.x = 0
             params.y = 0
+            applyOverlayInsets(params)
             runCatching { wm().updateViewLayout(overlay, params) }
         }
+        captureGuide?.refreshGestureExclusion()
     }
+
+    private fun fullDisplaySize(): Pair<Int, Int> =
+        NavEdgeBands.displaySize(wm(), resources.displayMetrics)
 
     private fun syncTypedTextFromField() {
         val ime = MtAccessibilityService.instance?.inputMethodBounds() ?: return
@@ -323,7 +400,7 @@ class MacroOverlayService : Service() {
         card.addView(spacerV(12))
         card.addView(
             TextView(this).apply {
-                text = "While recording, MT Auto Clicker captures taps, holds and swipes on your screen. Review actions before sharing."
+                text = "While recording, MT Auto Clicker captures taps, holds, swipes, and system nav (buttons or gesture swipes). Review actions before sharing."
                 setTextColor(0xFF6B7280.toInt())
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 gravity = Gravity.CENTER
@@ -403,14 +480,16 @@ class MacroOverlayService : Service() {
     private fun showVerticalPlaybackChip(snap: MacroSessionSnapshot) {
         removePanel()
         val cfg = snap.playbackConfig
+        val btn = dp(34)
+        val chipPad = dp(6)
         val chip = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(8), dp(10), dp(8), dp(10))
+            setPadding(chipPad, dp(8), chipPad, dp(8))
             background = GradientDrawable().apply {
                 setColor(0xF2111827.toInt())
-                cornerRadius = dp(18).toFloat()
-                setStroke(dp(1), 0x558B5CF6.toInt())
+                cornerRadius = dp(28).toFloat()
+                setStroke(dp(1), 0x668B5CF6.toInt())
             }
             elevation = dp(10).toFloat()
         }
@@ -419,8 +498,9 @@ class MacroOverlayService : Service() {
             text = "⠿"
             gravity = Gravity.CENTER
             setTextColor(0xFF94A3B8.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(dp(4), dp(2), dp(4), dp(6))
+            layoutParams = LinearLayout.LayoutParams(btn, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
         setupDragHandle(handle)
         chip.addView(handle)
@@ -430,44 +510,52 @@ class MacroOverlayService : Service() {
                 text = "${cfg.steps.size}"
                 gravity = Gravity.CENTER
                 setTextColor(0xFFF8FAFC.toInt())
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
                 typeface = Typeface.DEFAULT_BOLD
-                setPadding(0, 0, 0, dp(8))
+                setPadding(0, 0, 0, dp(6))
+                layoutParams = LinearLayout.LayoutParams(btn, ViewGroup.LayoutParams.WRAP_CONTENT)
             },
         )
 
-        listOf(0.5f to "0.5×", 1f to "1×", 2f to "2×").forEach { (value, label) ->
+        listOf(0.5f to "0.5x", 1f to "1x", 2f to "2x").forEach { (value, label) ->
             val active = kotlin.math.abs(cfg.playbackSpeed - value) < 0.01f
             chip.addView(
                 TextView(this).apply {
                     text = label
                     gravity = Gravity.CENTER
-                    setTextColor(if (active) Color.WHITE else 0xFF94A3B8.toInt())
+                    setTextColor(if (active) Color.WHITE else 0xFFCBD5E1.toInt())
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
                     typeface = Typeface.DEFAULT_BOLD
-                    setPadding(dp(8), dp(7), dp(8), dp(7))
-                    background = if (active) roundedBg(0xFF3B82F6.toInt(), 999f) else null
-                    layoutParams = LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ).apply { bottomMargin = dp(4) }
+                    maxLines = 1
+                    includeFontPadding = false
+                    background = if (active) {
+                        roundedBg(0xFF3B82F6.toInt(), 999f)
+                    } else {
+                        roundedBg(0xFF1E293B.toInt(), 999f).also {
+                            it.setStroke(dp(1), 0xFF475569.toInt())
+                        }
+                    }
+                    layoutParams = LinearLayout.LayoutParams(btn, btn).apply {
+                        gravity = Gravity.CENTER_HORIZONTAL
+                        bottomMargin = dp(5)
+                    }
                     setOnClickListener { MacroHub.patchPlayback(speed = value) }
                 },
             )
         }
 
-        chip.addView(spacerV(6))
+        chip.addView(spacerV(2))
         chip.addView(
             TextView(this).apply {
                 text = "▶"
                 gravity = Gravity.CENTER
                 setTextColor(Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                setPadding(dp(10), dp(10), dp(10), dp(10))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                includeFontPadding = false
                 background = roundedBg(0xFF10B981.toInt(), 999f)
-                layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                layoutParams = LinearLayout.LayoutParams(btn, btn).apply {
                     gravity = Gravity.CENTER_HORIZONTAL
-                    bottomMargin = dp(6)
+                    bottomMargin = dp(5)
                 }
                 setOnClickListener {
                     removePanel()
@@ -481,15 +569,22 @@ class MacroOverlayService : Service() {
                 text = "✕"
                 gravity = Gravity.CENTER
                 setTextColor(0xFFE2E8F0.toInt())
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setPadding(dp(10), dp(10), dp(10), dp(10))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                includeFontPadding = false
                 background = roundedBg(0xFF334155.toInt(), 999f)
-                layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                layoutParams = LinearLayout.LayoutParams(btn, btn).apply {
                     gravity = Gravity.CENTER_HORIZONTAL
                 }
                 setOnClickListener { closeMacroSession() }
             },
         )
+
+        // Keep clear of the right rounded display corner / gesture edge.
+        val edgeInset = dp(10)
+        val chipWidthEstimate = btn + chipPad * 2
+        val dm = resources.displayMetrics
+        panelX = (dm.widthPixels - chipWidthEstimate - edgeInset).coerceAtLeast(edgeInset)
+        panelY = panelY.coerceIn(dp(48), (dm.heightPixels - dp(280)).coerceAtLeast(dp(48)))
 
         val params = overlayParams(
             width = WindowManager.LayoutParams.WRAP_CONTENT,
@@ -514,6 +609,9 @@ class MacroOverlayService : Service() {
     private fun stopRecordingAndSave() {
         flushTypedTextIfNeeded()
         removeCapture()
+        removeRecChip()
+        recordNotifRefreshJob?.cancel()
+        stopRecordingForeground()
         cancelNotification(RECORD_NOTIFICATION_ID)
         lastNotifiedStepCount = -1
         val steps = MacroHub.stopRecordingSteps()
@@ -537,62 +635,171 @@ class MacroOverlayService : Service() {
         }
     }
 
+    /**
+     * OnePlus / OxygenOS often keep the application icon in the status bar even when
+     * setSmallIcon + launcher alias swap work on other OEMs. Mirror a REC chip under
+     * the clock so recording state is always obvious.
+     */
+    private fun showRecChip() {
+        if (recChipRoot != null) return
+        val chip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(6), dp(12), dp(6))
+            background = GradientDrawable().apply {
+                setColor(0xE0E11D28.toInt())
+                cornerRadius = dp(999).toFloat()
+            }
+            elevation = dp(8).toFloat()
+        }
+        chip.addView(
+            ImageView(this).apply {
+                setImageResource(R.drawable.ic_stat_recording)
+                setColorFilter(Color.WHITE)
+                layoutParams = LinearLayout.LayoutParams(dp(14), dp(14)).apply {
+                    marginEnd = dp(6)
+                }
+            },
+        )
+        chip.addView(
+            TextView(this).apply {
+                text = "REC"
+                setTextColor(Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                typeface = Typeface.DEFAULT_BOLD
+                includeFontPadding = false
+            },
+        )
+        val statusTop = statusBarHeightPx()
+        val params = overlayParams(
+            width = WindowManager.LayoutParams.WRAP_CONTENT,
+            height = WindowManager.LayoutParams.WRAP_CONTENT,
+            x = dp(48),
+            y = (statusTop + dp(2)).coerceAtLeast(dp(4)),
+            touchable = false,
+        )
+        recChipParams = params
+        recChipRoot = chip
+        runCatching { wm().addView(chip, params) }
+    }
+
+    private fun statusBarHeightPx(): Int {
+        val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (id > 0) resources.getDimensionPixelSize(id) else dp(24)
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     private fun showCaptureOverlay() {
         removeCapture()
+        val guide = CaptureGuideView(this)
+        captureGuide = guide
         val overlay = FrameLayout(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            addView(
+                guide,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                ),
+            )
         }
-        overlay.setOnTouchListener { _, event ->
-            if (captureLocked) return@setOnTouchListener true
+
+        val touchHandler = View.OnTouchListener { v, event ->
+            if (captureLocked) {
+                // Safety: never stay locked more than ~0.8s (missed finally / OEM delay).
+                if (SystemClock.elapsedRealtime() - captureLockedAtElapsed > 800L) {
+                    captureLocked = false
+                } else {
+                    return@OnTouchListener true
+                }
+            }
+            // View-local coords for markers; raw for edge classification.
+            val local = MacroPoint(event.x, event.y)
+            val raw = MacroPoint(event.rawX, event.rawY)
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     strokeOpen = true
                     strokePoints.clear()
-                    strokePoints += MacroPoint(event.rawX, event.rawY)
+                    strokePoints += raw
                     strokeStartElapsed = SystemClock.elapsedRealtime()
+                    guide.showFingerDown(local.x, local.y)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (!strokeOpen) return@setOnTouchListener true
+                    if (!strokeOpen) return@OnTouchListener true
+                    guide.showFingerDown(local.x, local.y)
                     val last = strokePoints.lastOrNull()
-                    val next = MacroPoint(event.rawX, event.rawY)
                     if (last == null ||
                         kotlin.math.hypot(
-                            (next.x - last.x).toDouble(),
-                            (next.y - last.y).toDouble(),
+                            (raw.x - last.x).toDouble(),
+                            (raw.y - last.y).toDouble(),
                         ) >= 3.0
                     ) {
-                        strokePoints += next
+                        strokePoints += raw
                     }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (!strokeOpen) return@setOnTouchListener true
+                    if (!strokeOpen) return@OnTouchListener true
                     strokeOpen = false
-                    strokePoints += MacroPoint(event.rawX, event.rawY)
+                    strokePoints += raw
                     val duration = (SystemClock.elapsedRealtime() - strokeStartElapsed).coerceAtLeast(28L)
+                    refreshNavEdges()
+                    val edges = navEdges ?: NavEdgeBands.resolve(this@MacroOverlayService, wm())
                     val density = resources.displayMetrics.density
                     val points = strokePoints.toList()
                     strokePoints.clear()
-                    val step = MacroGestureCoalescer.coalesce(points, duration, density)
+                    lastStrokePoints = points
+                    val loc = IntArray(2)
+                    v.getLocationOnScreen(loc)
+                    val localPts = points.map { MacroPoint(it.x - loc[0], it.y - loc[1]) }
+                    val step = MacroGestureCoalescer.classifySystemNav(
+                        points,
+                        duration,
+                        density,
+                        edges,
+                    ) ?: MacroGestureCoalescer.coalesce(points, duration, density)
                     if (step != null) {
-                        // Fully remove overlay now — FLAG_NOT_TOUCHABLE is unreliable on OxygenOS
-                        // and caused missed taps (felt even more laggy).
-                        detachCaptureOverlayNow()
-                        queueLiveRelay(step)
+                        guide.showCapture(step, localPts)
+                        val isGlobal = step.kind == MacroStepKind.GLOBAL_BACK ||
+                            step.kind == MacroStepKind.GLOBAL_HOME ||
+                            step.kind == MacroStepKind.GLOBAL_RECENTS ||
+                            step.kind == MacroStepKind.GLOBAL_NOTIFICATIONS
+                        if (isGlobal) {
+                            // Do NOT detach for globals — tearing the overlay down to open
+                            // Recents/Home was why only the first gesture worked.
+                            queueGlobalRecord(step)
+                        } else {
+                            captureLocked = true
+                            captureLockedAtElapsed = SystemClock.elapsedRealtime()
+                            scope.launch {
+                                delay(160)
+                                if (MacroHub.snapshot.value.mode != MacroOverlayMode.RECORDING) {
+                                    captureLocked = false
+                                    return@launch
+                                }
+                                detachCaptureOverlayNow()
+                                queueLiveRelay(step)
+                            }
+                        }
+                    } else {
+                        guide.clearFinger()
                     }
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     strokeOpen = false
                     strokePoints.clear()
+                    guide.clearFinger()
                     true
                 }
                 else -> false
             }
         }
+        // Guide is the topmost child — it must own the touch stream.
+        guide.setOnTouchListener(touchHandler)
+
         val params = overlayParams(
             width = WindowManager.LayoutParams.MATCH_PARENT,
             height = WindowManager.LayoutParams.MATCH_PARENT,
@@ -603,15 +810,63 @@ class MacroOverlayService : Service() {
         captureParams = params
         captureOverlay = overlay
         wm().addView(overlay, params)
+        refreshNavEdges()
+        overlay.post {
+            refreshNavEdges()
+            guide.refreshGestureExclusion()
+            refreshImeCaptureBounds()
+        }
         refreshImeCaptureBounds()
         imeLayoutJob?.cancel()
         imeLayoutJob = scope.launch {
             while (MacroHub.snapshot.value.mode == MacroOverlayMode.RECORDING) {
                 delay(800)
                 refreshImeCaptureBounds()
+                captureGuide?.refreshGestureExclusion()
                 syncTypedTextFromField()
             }
         }
+    }
+
+    /**
+     * Record a system-nav step. During recording we do NOT open Home / Recents /
+     * the notification shade — those SystemUI surfaces sit above our overlay and
+     * steal every following touch (felt like "works once then dies").
+     * Back is safe to fire live. All globals still run on playback.
+     */
+    private fun queueGlobalRecord(step: MacroStep) {
+        val accepted = MacroHub.appendStep(step, dedupeWindowMs = 250L)
+        captureLocked = false
+        strokeOpen = false
+        if (!accepted) return
+
+        val label = when (step.kind) {
+            MacroStepKind.GLOBAL_BACK -> "Back"
+            MacroStepKind.GLOBAL_HOME -> "Home"
+            MacroStepKind.GLOBAL_RECENTS -> "Recents"
+            MacroStepKind.GLOBAL_NOTIFICATIONS -> "Notifications"
+            else -> "Nav"
+        }
+
+        val fireLive = step.kind == MacroStepKind.GLOBAL_BACK
+        Toast.makeText(
+            this,
+            if (fireLive) "Recorded · $label"
+            else "Recorded · $label (runs on Play)",
+            Toast.LENGTH_SHORT,
+        ).show()
+
+        if (fireLive) {
+            MtAccessibilityService.instance?.performGlobalNav(step.kind)
+        }
+
+        // Keep capture armed for the next gesture immediately.
+        captureGuide?.clearFinger()
+        captureGuide?.refreshGestureExclusion()
+        if (captureOverlay?.parent == null) {
+            reattachCaptureOverlay()
+        }
+        if (recChipRoot?.parent == null) showRecChip()
     }
 
     /**
@@ -624,13 +879,18 @@ class MacroOverlayService : Service() {
         val accepted = MacroHub.appendStep(step)
         reattachJob?.cancel()
         if (!accepted) {
+            captureLocked = false
             scheduleCaptureReattach(40L)
             return
         }
         scope.launch {
             relayMutex.withLock {
-                if (MacroHub.snapshot.value.mode != MacroOverlayMode.RECORDING) return@withLock
+                if (MacroHub.snapshot.value.mode != MacroOverlayMode.RECORDING) {
+                    captureLocked = false
+                    return@withLock
+                }
                 captureLocked = true
+                captureLockedAtElapsed = SystemClock.elapsedRealtime()
                 try {
                     detachCaptureOverlayNow()
                     delay(6)
@@ -646,6 +906,7 @@ class MacroOverlayService : Service() {
                 } finally {
                     captureLocked = false
                     reattachCaptureOverlay()
+                    captureGuide?.refreshGestureExclusion()
                 }
             }
         }
@@ -688,6 +949,10 @@ class MacroOverlayService : Service() {
     private fun postRecordingNotification(snap: MacroSessionSnapshot) {
         ensureChannel(RECORD_CHANNEL_ID, "Macro recording", NotificationManager.IMPORTANCE_DEFAULT)
         val stopPi = servicePending(1, ACTION_STOP_RECORD)
+        val backPi = servicePending(11, ACTION_RECORD_BACK)
+        val homePi = servicePending(12, ACTION_RECORD_HOME)
+        val recentsPi = servicePending(13, ACTION_RECORD_RECENTS)
+        val notifPi = servicePending(14, ACTION_RECORD_NOTIFICATIONS)
         val openPi = activityPending(0)
         val count = snap.stepCount
         val timer = formatElapsed(snap.recordingStartedAtMs)
@@ -707,7 +972,9 @@ class MacroOverlayService : Service() {
         }
 
         val notification = NotificationCompat.Builder(this, RECORD_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_rec_dot)
+            // Stock Android uses this silhouette. OnePlus often ignores it and forces the
+            // application icon — we also show a floating REC chip under the clock.
+            .setSmallIcon(R.drawable.ic_stat_recording)
             .setContentTitle("Recording $timer")
             .setContentText(if (count == 0) "Waiting…" else "$count actions")
             .setCustomContentView(views)
@@ -720,14 +987,58 @@ class MacroOverlayService : Service() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setColor(0xFFFF3B30.toInt())
+            .setColor(0xFFE11D28.toInt())
             .setWhen(startedAt)
             .setShowWhen(true)
             .setUsesChronometer(true)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .addAction(0, "Back", backPi)
+            .addAction(0, "Home", homePi)
+            .addAction(0, "Recents", recentsPi)
+            .addAction(0, "Shade", notifPi)
             .addAction(R.drawable.ic_stop, "Stop", stopPi)
             .build()
         lastNotifiedStepCount = count
-        notify(RECORD_NOTIFICATION_ID, notification)
+        startRecordingForeground(notification)
+    }
+
+    private fun startRecordingForeground(notification: Notification) {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    RECORD_NOTIFICATION_ID,
+                    notification,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                startForeground(RECORD_NOTIFICATION_ID, notification)
+            }
+            recordingFgStarted = true
+        }.onFailure {
+            // Fallback if FGS type is rejected — still show the chip.
+            recordingFgStarted = false
+            notify(RECORD_NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun stopRecordingForeground() {
+        if (!recordingFgStarted) return
+        recordingFgStarted = false
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+        }
+    }
+
+    /** Insert a nav step into the macro. Avoid opening Home/Recents/Shade live while recording. */
+    private fun recordAndPerformGlobal(kind: MacroStepKind) {
+        if (MacroHub.snapshot.value.mode != MacroOverlayMode.RECORDING) return
+        queueGlobalRecord(MacroStep(kind = kind, delayMs = 0L, durationMs = 50L))
     }
 
     private fun postPlaybackReadyNotification(snap: MacroSessionSnapshot) {
@@ -828,6 +1139,8 @@ class MacroOverlayService : Service() {
             override fun onTouch(v: View, event: MotionEvent): Boolean {
                 val params = panelParams ?: return false
                 val root = panelRoot ?: return false
+                val dm = resources.displayMetrics
+                val edge = dp(8)
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
                         downX = event.rawX
@@ -837,8 +1150,12 @@ class MacroOverlayService : Service() {
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        params.x = startX + (event.rawX - downX).toInt()
-                        params.y = startY + (event.rawY - downY).toInt()
+                        val w = root.width.coerceAtLeast(dp(40))
+                        val h = root.height.coerceAtLeast(dp(120))
+                        params.x = (startX + (event.rawX - downX).toInt())
+                            .coerceIn(edge, (dm.widthPixels - w - edge).coerceAtLeast(edge))
+                        params.y = (startY + (event.rawY - downY).toInt())
+                            .coerceIn(edge, (dm.heightPixels - h - edge).coerceAtLeast(edge))
                         panelX = params.x
                         panelY = params.y
                         wm().updateViewLayout(root, params)
@@ -885,6 +1202,24 @@ class MacroOverlayService : Service() {
             gravity = Gravity.TOP or Gravity.START
             this.x = x
             this.y = y
+            applyOverlayInsets(this)
+        }
+    }
+
+    private fun applyOverlayInsets(params: WindowManager.LayoutParams) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            params.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Critical on OnePlus: default inset fitting leaves gaps at gesture edges
+            // so bottom/side swipes never reach the capture overlay.
+            params.setFitInsetsTypes(0)
+            params.setFitInsetsSides(0)
+            runCatching {
+                @Suppress("DEPRECATION")
+                params.isFitInsetsIgnoringVisibility = true
+            }
         }
     }
 
@@ -897,7 +1232,11 @@ class MacroOverlayService : Service() {
         const val ACTION_STOP_RECORD = "net.mtautoclicker.android.MACRO_STOP_RECORD"
         const val ACTION_PLAY = "net.mtautoclicker.android.MACRO_NOTIF_PLAY"
         const val ACTION_CLOSE_SESSION = "net.mtautoclicker.android.MACRO_NOTIF_CLOSE"
-        private const val RECORD_CHANNEL_ID = "mt_macro_record_v6"
+        const val ACTION_RECORD_BACK = "net.mtautoclicker.android.MACRO_RECORD_BACK"
+        const val ACTION_RECORD_HOME = "net.mtautoclicker.android.MACRO_RECORD_HOME"
+        const val ACTION_RECORD_RECENTS = "net.mtautoclicker.android.MACRO_RECORD_RECENTS"
+        const val ACTION_RECORD_NOTIFICATIONS = "net.mtautoclicker.android.MACRO_RECORD_NOTIFICATIONS"
+        private const val RECORD_CHANNEL_ID = "mt_macro_record_v9"
         private const val PLAYBACK_CHANNEL_ID = "mt_macro_playback_ready_v6"
         private const val RECORD_NOTIFICATION_ID = 1003
         private const val PLAYBACK_READY_NOTIFICATION_ID = 1004

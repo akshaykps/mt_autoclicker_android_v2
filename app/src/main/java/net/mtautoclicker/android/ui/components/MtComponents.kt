@@ -338,7 +338,7 @@ fun MtTextField(
 }
 
 @Composable
-fun HeroHeader(version: String, onSettingsClick: (() -> Unit)? = null) {
+fun HeroHeader(@Suppress("UNUSED_PARAMETER") version: String = "", onSettingsClick: (() -> Unit)? = null) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -364,19 +364,7 @@ fun HeroHeader(version: String, onSettingsClick: (() -> Unit)? = null) {
                     Icon(Icons.Rounded.AdsClick, null, tint = Color.White, modifier = Modifier.size(26.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("MT Auto Clicker", color = MtHi, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                        Text(
-                            "v$version",
-                            color = MtBlue,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(MtBlue.copy(alpha = 0.15f))
-                                .padding(horizontal = 8.dp, vertical = 3.dp),
-                        )
-                    }
+                    Text("MT Auto Clicker", color = MtHi, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Text("Click less. Do more.", color = MtMid, fontSize = 13.sp)
                 }
                 if (onSettingsClick != null) {

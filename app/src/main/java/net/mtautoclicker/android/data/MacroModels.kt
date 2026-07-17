@@ -10,6 +10,12 @@ enum class MacroStepKind {
     PATH,
     /** Fill focused text field (used for smooth keyboard typing during record). */
     TYPE_TEXT,
+    /** System navigation — Accessibility global actions. */
+    GLOBAL_BACK,
+    GLOBAL_HOME,
+    GLOBAL_RECENTS,
+    /** Notification shade (swipe down from top). */
+    GLOBAL_NOTIFICATIONS,
 }
 
 @Serializable

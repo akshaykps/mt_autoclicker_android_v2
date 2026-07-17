@@ -1,5 +1,6 @@
 package net.mtautoclicker.android.engine
 
+import android.os.SystemClock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,14 +27,26 @@ object AutomationHub {
     var pickingTarget: Boolean = false
         private set
 
+    @Volatile
+    private var suppressMainAppDismissUntilMs: Long = 0
+
     fun arm(plan: AutomationPlan) {
         activePlan = plan
+        suppressMainAppDismissUntilMs = SystemClock.elapsedRealtime() + 2_500L
         _snapshot.value = AutomationSnapshot(
             feature = plan.feature,
             runState = AutomationRunState.ARMED,
             targets = plan.targets,
             message = "Place targets from the float bar, then press Play.",
         )
+    }
+
+    /** Hide click float bar when user returns to MT Auto Clicker UI. */
+    fun shouldAutoDismissOnMainApp(): Boolean {
+        val phase = _snapshot.value.runState
+        if (phase == AutomationRunState.IDLE) return false
+        if (SystemClock.elapsedRealtime() < suppressMainAppDismissUntilMs) return false
+        return true
     }
 
     fun setTargets(targets: List<ClickTarget>) {

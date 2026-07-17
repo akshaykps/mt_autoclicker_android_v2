@@ -61,7 +61,9 @@ class ScreenshotOverlayService : Service() {
         instance = this
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         val dm = resources.displayMetrics
-        panelX = (dm.widthPixels - dp(64)).coerceAtLeast(dp(12))
+        val edgeInset = dp(10)
+        val chipWidthEstimate = dp(34) + dp(6) * 2
+        panelX = (dm.widthPixels - chipWidthEstimate - edgeInset).coerceAtLeast(edgeInset)
         panelY = dp(140)
         showChip()
         scope.launch {
@@ -109,13 +111,15 @@ class ScreenshotOverlayService : Service() {
     @SuppressLint("ClickableViewAccessibility", "SetTextI18n")
     private fun showChip() {
         removeChip()
+        val btn = dp(34)
+        val chipPad = dp(6)
         val chip = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(10), dp(12), dp(10), dp(12))
+            setPadding(chipPad, dp(8), chipPad, dp(8))
             background = GradientDrawable().apply {
                 setColor(0xF2111827.toInt())
-                cornerRadius = dp(18).toFloat()
+                cornerRadius = dp(28).toFloat()
                 setStroke(dp(1), 0x5506B6D4.toInt())
             }
             elevation = dp(10).toFloat()
@@ -125,8 +129,9 @@ class ScreenshotOverlayService : Service() {
             text = "⠿"
             gravity = Gravity.CENTER
             setTextColor(0xFF94A3B8.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            setPadding(dp(4), dp(2), dp(4), dp(8))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(dp(4), dp(2), dp(4), dp(6))
+            layoutParams = LinearLayout.LayoutParams(btn, LinearLayout.LayoutParams.WRAP_CONTENT)
         }
         setupDrag(handle)
         chip.addView(handle)
@@ -137,7 +142,8 @@ class ScreenshotOverlayService : Service() {
             setTextColor(0xFFE2E8F0.toInt())
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, 0, 0, dp(8))
+            setPadding(0, 0, 0, dp(6))
+            layoutParams = LinearLayout.LayoutParams(btn, LinearLayout.LayoutParams.WRAP_CONTENT)
         }
         chip.addView(statusView)
 
@@ -145,15 +151,15 @@ class ScreenshotOverlayService : Service() {
             text = "📷"
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            setPadding(dp(10), dp(12), dp(10), dp(12))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            includeFontPadding = false
             background = GradientDrawable().apply {
                 setColor(0xFF0891B2.toInt())
                 cornerRadius = dp(999).toFloat()
             }
-            layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply {
+            layoutParams = LinearLayout.LayoutParams(btn, btn).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
-                bottomMargin = dp(8)
+                bottomMargin = dp(5)
             }
             setOnClickListener {
                 if (FullPageCaptureHub.snapshot.value.phase == FullPageCapturePhase.CAPTURING) {
@@ -170,18 +176,25 @@ class ScreenshotOverlayService : Service() {
                 text = "✕"
                 gravity = Gravity.CENTER
                 setTextColor(0xFFE2E8F0.toInt())
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setPadding(dp(10), dp(10), dp(10), dp(10))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                includeFontPadding = false
                 background = GradientDrawable().apply {
                     setColor(0xFF334155.toInt())
                     cornerRadius = dp(999).toFloat()
                 }
-                layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply {
+                layoutParams = LinearLayout.LayoutParams(btn, btn).apply {
                     gravity = Gravity.CENTER_HORIZONTAL
                 }
                 setOnClickListener { stopSelf() }
             },
         )
+
+        // Keep clear of the right rounded display corner / gesture edge.
+        val edgeInset = dp(10)
+        val chipWidthEstimate = btn + chipPad * 2
+        val dm = resources.displayMetrics
+        panelX = (dm.widthPixels - chipWidthEstimate - edgeInset).coerceAtLeast(edgeInset)
+        panelY = panelY.coerceIn(dp(48), (dm.heightPixels - dp(200)).coerceAtLeast(dp(48)))
 
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -371,6 +384,8 @@ class ScreenshotOverlayService : Service() {
             override fun onTouch(v: View, event: MotionEvent): Boolean {
                 val lp = params ?: return false
                 val chip = root ?: return false
+                val dm = resources.displayMetrics
+                val edge = dp(8)
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
                         downX = event.rawX
@@ -380,8 +395,12 @@ class ScreenshotOverlayService : Service() {
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        lp.x = startX + (event.rawX - downX).toInt()
-                        lp.y = startY + (event.rawY - downY).toInt()
+                        val w = chip.width.coerceAtLeast(dp(40))
+                        val h = chip.height.coerceAtLeast(dp(120))
+                        lp.x = (startX + (event.rawX - downX).toInt())
+                            .coerceIn(edge, (dm.widthPixels - w - edge).coerceAtLeast(edge))
+                        lp.y = (startY + (event.rawY - downY).toInt())
+                            .coerceIn(edge, (dm.heightPixels - h - edge).coerceAtLeast(edge))
                         panelX = lp.x
                         panelY = lp.y
                         wm.updateViewLayout(chip, lp)

@@ -1,20 +1,110 @@
 package net.mtautoclicker.android.engine
 
+import android.content.Context
+import android.os.Build
+import android.provider.Settings
 import android.util.DisplayMetrics
+import android.view.WindowInsets
+import android.view.WindowManager
 import net.mtautoclicker.android.data.MacroPoint
 import net.mtautoclicker.android.data.MacroStep
 import net.mtautoclicker.android.data.MacroStepKind
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
-import kotlin.math.min
 
 /**
- * Turns a raw touch stroke into a compact MacroStep (tap / long-press / swipe / path).
+ * Exact display bounds + system-gesture edge bands used for nav classification
+ * and the on-screen capture guide.
+ */
+data class NavEdgeBands(
+    val screenW: Int,
+    val screenH: Int,
+    /** Pixels from left edge that count as Back-start. */
+    val leftPx: Int,
+    val rightPx: Int,
+    /** Pixels from top that count as Notification-start. */
+    val topPx: Int,
+    /** Pixels from bottom that count as Home/Recents-start. */
+    val bottomPx: Int,
+) {
+    companion object {
+        /**
+         * Prefer live [WindowInsets] system-gesture sizes (device-exact).
+         * Fallback matches common gesture-nav insets (e.g. OnePlus 1080×2400 → 90/96/107).
+         */
+        fun resolve(context: Context, wm: WindowManager): NavEdgeBands {
+            val density = context.resources.displayMetrics.density
+            val (w, h) = displaySize(wm, context.resources.displayMetrics)
+
+            var left = 0
+            var right = 0
+            var top = 0
+            var bottom = 0
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val insets = runCatching {
+                    wm.maximumWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
+                        WindowInsets.Type.systemGestures() or
+                            WindowInsets.Type.mandatorySystemGestures(),
+                    )
+                }.getOrNull()
+                if (insets != null) {
+                    left = insets.left
+                    right = insets.right
+                    top = insets.top
+                    bottom = insets.bottom
+                }
+            }
+
+            // Fallbacks when insets are missing (some overlay contexts).
+            if (left <= 0) left = (30f * density).toInt().coerceAtLeast(48)   // ~90px @3x
+            if (right <= 0) right = (30f * density).toInt().coerceAtLeast(48)
+            if (bottom <= 0) bottom = (32f * density).toInt().coerceAtLeast(64) // ~96px @3x
+            if (top <= 0) top = (36f * density).toInt().coerceAtLeast(72)       // ~status/cutout
+
+            // Tiny pad: OEM often delivers first touch a few px inside the true edge.
+            val pad = (3f * density).toInt().coerceIn(4, 12)
+            return NavEdgeBands(
+                screenW = w,
+                screenH = h,
+                leftPx = (left + pad).coerceAtMost(w / 6),
+                rightPx = (right + pad).coerceAtMost(w / 6),
+                topPx = (top + pad).coerceAtMost(h / 8),
+                bottomPx = (bottom + pad).coerceAtMost(h / 8),
+            )
+        }
+
+        fun displaySize(wm: WindowManager, metrics: DisplayMetrics): Pair<Int, Int> {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val b = wm.maximumWindowMetrics.bounds
+                return b.width() to b.height()
+            }
+            @Suppress("DEPRECATION")
+            val dm = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            wm.defaultDisplay.getRealMetrics(dm)
+            if (dm.widthPixels > 0 && dm.heightPixels > 0) {
+                return dm.widthPixels to dm.heightPixels
+            }
+            return metrics.widthPixels to metrics.heightPixels
+        }
+    }
+}
+
+/**
+ * Turns a raw touch stroke into a compact MacroStep (tap / long-press / swipe / path),
+ * or maps *edge-started* strokes to system global actions.
  */
 object MacroGestureCoalescer {
     private const val LONG_PRESS_MS = 500L
     private const val MIN_MOVE_PX = 28f
     private const val SAMPLE_MIN_DIST = 6f
+    private const val RECENTS_HOLD_MS = 320L
+
+    /** Guide drawing fallbacks (overridden by live [NavEdgeBands] when available). */
+    const val EDGE_ZONE_DP = 30f
+    const val BOTTOM_ZONE_DP = 32f
+    const val TOP_ZONE_DP = 36f
 
     fun coalesce(
         points: List<MacroPoint>,
@@ -60,6 +150,111 @@ object MacroGestureCoalescer {
             )
         }
     }
+
+    fun isGestureNavigation(context: Context): Boolean {
+        val secure = runCatching {
+            Settings.Secure.getInt(context.contentResolver, "navigation_mode", -1)
+        }.getOrDefault(-1)
+        if (secure == 2) return true
+        if (secure == 0 || secure == 1) return false
+        val id = context.resources.getIdentifier("config_navBarInteractionMode", "integer", "android")
+        if (id > 0) {
+            return runCatching { context.resources.getInteger(id) == 2 }.getOrDefault(false)
+        }
+        return false
+    }
+
+    /**
+     * Strict edge classification:
+     * - Finger must **start** inside the system-gesture band (not merely pass through it).
+     * - Movement must be clearly directional (avoids confusing content scrolls).
+     */
+    fun classifySystemNav(
+        points: List<MacroPoint>,
+        durationMs: Long,
+        density: Float,
+        edges: NavEdgeBands,
+    ): MacroStep? {
+        if (points.size < 2 || edges.screenW <= 0 || edges.screenH <= 0) return null
+        val start = points.first()
+        val end = points.last()
+        val dx = end.x - start.x
+        val dy = end.y - start.y
+        val minTravel = 48f * density
+        val dominant = 1.25f // axis must dominate the other by 25%+
+
+        // --- Notifications: start in top band, swipe down ---
+        if (start.y <= edges.topPx) {
+            val mostlyVertical = abs(dy) >= abs(dx) * dominant
+            if (dy >= minTravel && mostlyVertical) {
+                return MacroStep(
+                    kind = MacroStepKind.GLOBAL_NOTIFICATIONS,
+                    delayMs = 0L,
+                    durationMs = 50L,
+                )
+            }
+            // Started at top but not a clean shade swipe → treat as normal gesture.
+            return null
+        }
+
+        // --- Back: start in left/right band, swipe inward ---
+        val fromLeft = start.x <= edges.leftPx
+        val fromRight = start.x >= edges.screenW - edges.rightPx
+        if (fromLeft || fromRight) {
+            val mostlyHorizontal = abs(dx) >= abs(dy) * dominant
+            val inward = when {
+                fromLeft && !fromRight -> dx >= minTravel
+                fromRight && !fromLeft -> dx <= -minTravel
+                else -> false
+            }
+            if (inward && mostlyHorizontal) {
+                return MacroStep(
+                    kind = MacroStepKind.GLOBAL_BACK,
+                    delayMs = 0L,
+                    durationMs = 50L,
+                )
+            }
+            return null
+        }
+
+        // --- Home / Recents: start in bottom band, swipe up ---
+        if (start.y >= edges.screenH - edges.bottomPx) {
+            val mostlyVertical = abs(dy) >= abs(dx) * dominant
+            if ((-dy) >= minTravel && mostlyVertical) {
+                val kind = if (durationMs >= RECENTS_HOLD_MS) {
+                    MacroStepKind.GLOBAL_RECENTS
+                } else {
+                    MacroStepKind.GLOBAL_HOME
+                }
+                return MacroStep(kind = kind, delayMs = 0L, durationMs = 50L)
+            }
+            return null
+        }
+
+        // Started in the content area → never a system-nav gesture.
+        return null
+    }
+
+    /** @deprecated Prefer [classifySystemNav] with [NavEdgeBands]. */
+    fun classifySystemNav(
+        points: List<MacroPoint>,
+        durationMs: Long,
+        density: Float,
+        screenW: Int,
+        screenH: Int,
+    ): MacroStep? = classifySystemNav(
+        points,
+        durationMs,
+        density,
+        NavEdgeBands(
+            screenW = screenW,
+            screenH = screenH,
+            leftPx = (EDGE_ZONE_DP * density).toInt(),
+            rightPx = (EDGE_ZONE_DP * density).toInt(),
+            topPx = (TOP_ZONE_DP * density).toInt(),
+            bottomPx = (BOTTOM_ZONE_DP * density).toInt(),
+        ),
+    )
 
     private fun downsample(points: List<MacroPoint>, minDist: Float): List<MacroPoint> {
         if (points.size <= 2) return points

@@ -1,5 +1,6 @@
 package net.mtautoclicker.android.engine
 
+import android.os.SystemClock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,9 +36,13 @@ object MacroHub {
     private var lastStepAtMs: Long = 0L
     private val pendingSteps = mutableListOf<MacroStep>()
 
+    @Volatile
+    private var suppressMainAppDismissUntilMs: Long = 0
+
     fun armRecordReady() {
         pendingSteps.clear()
         lastStepAtMs = 0L
+        suppressMainAppDismissUntilMs = SystemClock.elapsedRealtime() + 2_500L
         _snapshot.value = MacroSessionSnapshot(
             mode = MacroOverlayMode.RECORD_READY,
             message = "Ready to record — tap Record, then interact.",
@@ -46,6 +51,7 @@ object MacroHub {
 
     fun armPlayback(macro: SavedMacro, config: MacroPlaybackConfig = MacroPlaybackConfig()) {
         pendingSteps.clear()
+        suppressMainAppDismissUntilMs = SystemClock.elapsedRealtime() + 2_500L
         _snapshot.value = MacroSessionSnapshot(
             mode = MacroOverlayMode.PLAYBACK,
             lastSavedMacro = macro,
@@ -57,6 +63,18 @@ object MacroHub {
             progressTotal = macro.steps.size,
             message = "Macro saved — press Play to start.",
         )
+    }
+
+    /** Hide idle macro float UI when user returns to MT Auto Clicker. */
+    fun shouldAutoDismissOnMainApp(): Boolean {
+        val mode = _snapshot.value.mode
+        if (mode == MacroOverlayMode.IDLE) return false
+        // Never kill an in-progress recording — notification taps open MainActivity
+        // and were wiping the session after the first gesture.
+        if (mode == MacroOverlayMode.RECORDING) return false
+        if (mode == MacroOverlayMode.PLAYBACK && _snapshot.value.isPlaying) return false
+        if (SystemClock.elapsedRealtime() < suppressMainAppDismissUntilMs) return false
+        return true
     }
 
     fun startRecording() {
@@ -80,6 +98,11 @@ object MacroHub {
         val window = dedupeWindowMs ?: when (stepWithoutDelay.kind) {
             MacroStepKind.TAP, MacroStepKind.LONG_PRESS -> 450L
             MacroStepKind.TYPE_TEXT -> 0L
+            MacroStepKind.GLOBAL_BACK,
+            MacroStepKind.GLOBAL_HOME,
+            MacroStepKind.GLOBAL_RECENTS,
+            MacroStepKind.GLOBAL_NOTIFICATIONS,
+            -> 400L
             else -> 100L
         }
         if (window > 0L &&
@@ -130,6 +153,13 @@ object MacroHub {
     }
 
     private fun sameSpot(a: MacroStep, b: MacroStep): Boolean {
+        if (a.kind == MacroStepKind.GLOBAL_BACK ||
+            a.kind == MacroStepKind.GLOBAL_HOME ||
+            a.kind == MacroStepKind.GLOBAL_RECENTS ||
+            a.kind == MacroStepKind.GLOBAL_NOTIFICATIONS
+        ) {
+            return a.kind == b.kind
+        }
         val ax = a.x ?: a.points?.firstOrNull()?.x ?: return false
         val ay = a.y ?: a.points?.firstOrNull()?.y ?: return false
         val bx = b.x ?: b.points?.firstOrNull()?.x ?: return false

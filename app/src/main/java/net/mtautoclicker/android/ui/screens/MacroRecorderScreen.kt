@@ -86,13 +86,15 @@ private val RECORDED_ITEMS = listOf(
     "Taps (single click)",
     "Long presses (holds)",
     "Swipes and drag paths",
+    "Back / Home / Recents — edge/bottom gestures, 3-button bar, or notification actions",
+    "Notification shade — swipe down from the top edge",
     "Delays between each action",
 )
 
 private val NOT_RECORDED_ITEMS = listOf(
-    "Keyboard typing and system keys",
-    "Actions outside the capture overlay",
-    "Notifications and OS dialogs",
+    "Keyboard typing (except captured text fields)",
+    "Touches outside the tinted capture guide (if any OS edge is reserved)",
+    "Notifications and most OS dialogs (except shade open via top swipe)",
     "Multi-finger / pinch gestures",
 )
 
@@ -100,6 +102,11 @@ private val DEVICE_LIMITATIONS = listOf(
     "Playback injects gestures via Accessibility — your finger does not move.",
     "Some apps ignore injected (non-trusted) gestures.",
     "Keep Accessibility enabled for record and playback.",
+    "After updating the app, toggle Accessibility off/on so nav-key capture is enabled.",
+    "While recording, colored edge bands show capture hot-zones; cyan rings mark taps/swipes.",
+    "Gesture nav: left/right edge → Back · bottom swipe up → Home · hold → Recents · top swipe down → Notifications.",
+    "On some OnePlus / OxygenOS builds the status-bar chip may keep the app icon even while the home icon shows REC — use the red REC notification card.",
+    "If Home/Recents keys are blocked by the OEM, use Back/Home/Recents on the recording notification.",
     "Macros are stored on this device only.",
 )
 

@@ -94,9 +94,9 @@ class FloatingOverlayService : Service() {
         super.onCreate()
         appWindowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         instance = this
-        // Default: right-center like extension
+        // Default: right side with inset so it doesn't sit in the display corner.
         val dm = resources.displayMetrics
-        barX = (dm.widthPixels - dp(56))
+        barX = (dm.widthPixels - dp(48)).coerceAtLeast(dp(8))
         barY = (dm.heightPixels / 2 - dp(110)).coerceAtLeast(dp(48))
         showArmedPill()
         scope.launch {
@@ -149,10 +149,13 @@ class FloatingOverlayService : Service() {
         val pill = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(5), dp(8), dp(5), dp(10))
+            setPadding(dp(4), dp(6), dp(4), dp(8))
             background = pillBg()
             elevation = dp(10).toFloat()
         }
+
+        val dragHandle = dragHandleView()
+        pill.addView(dragHandle)
 
         val top = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -218,7 +221,7 @@ class FloatingOverlayService : Service() {
         pill.addView(spacerV(8))
         pill.addView(bottom)
 
-        setupPillDrag(pill)
+        setupPillDrag(dragHandle)
 
         val params = overlayParams(
             width = WindowManager.LayoutParams.WRAP_CONTENT,
@@ -292,6 +295,9 @@ class FloatingOverlayService : Service() {
             elevation = dp(12).toFloat()
         }
 
+        val dragHandle = dragHandleView()
+        pill.addView(dragHandle)
+
         // Live status dot above controls
         val statusDot = View(this).apply {
             layoutParams = LinearLayout.LayoutParams(dp(8), dp(8)).apply {
@@ -350,7 +356,7 @@ class FloatingOverlayService : Service() {
         pill.addView(spacerV(6))
         pill.addView(stopBtn)
 
-        setupPillDrag(pill)
+        setupPillDrag(dragHandle)
 
         val params = overlayParams(
             width = WindowManager.LayoutParams.WRAP_CONTENT,
@@ -937,12 +943,12 @@ class FloatingOverlayService : Service() {
         fillColor: Int? = null,
         onClick: (View) -> Unit,
     ): ImageButton {
-        val size = dp(34)
+        val size = dp(32)
         return ImageButton(this).apply {
             setImageResource(iconRes)
             imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setPadding(dp(7), dp(7), dp(7), dp(7))
+            setPadding(dp(6), dp(6), dp(6), dp(6))
             background = if (fillColor != null) circleFillBg(fillColor) else circleOutlineBg()
             layoutParams = LinearLayout.LayoutParams(size, size)
             isEnabled = enabled
@@ -1117,66 +1123,54 @@ class FloatingOverlayService : Service() {
         }
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun setupPillDrag(view: View) {
-        view.setOnTouchListener(object : View.OnTouchListener {
+    private fun setupPillDrag(handle: View) {
+        handle.setOnTouchListener(object : View.OnTouchListener {
             var downX = 0f
             var downY = 0f
             var startX = 0
             var startY = 0
-            var dragging = false
             override fun onTouch(v: View, event: MotionEvent): Boolean {
-                // Don't steal button taps
-                if (event.action == MotionEvent.ACTION_DOWN) {
-                    val child = (v as? ViewGroup)?.let { findChildAt(it, event.x, event.y) }
-                    if (child != null && child.isClickable && child !== v) return false
-                }
                 val params = barParams ?: return false
-                when (event.action) {
+                val root = floatBar ?: return false
+                when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
                         downX = event.rawX
                         downY = event.rawY
                         startX = params.x
                         startY = params.y
-                        dragging = false
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        val dx = event.rawX - downX
-                        val dy = event.rawY - downY
-                        if (!dragging && (kotlin.math.abs(dx) > 8 || kotlin.math.abs(dy) > 8)) {
-                            dragging = true
-                        }
-                        if (dragging) {
-                            params.x = (startX + dx).toInt()
-                            params.y = (startY + dy).toInt()
-                            wm().updateViewLayout(v, params)
-                            barX = params.x
-                            barY = params.y
-                        }
+                        val dm = resources.displayMetrics
+                        val edge = dp(8)
+                        val w = root.width.coerceAtLeast(dp(40))
+                        val h = root.height.coerceAtLeast(dp(120))
+                        params.x = (startX + (event.rawX - downX)).toInt()
+                            .coerceIn(edge, (dm.widthPixels - w - edge).coerceAtLeast(edge))
+                        params.y = (startY + (event.rawY - downY)).toInt()
+                            .coerceIn(edge, (dm.heightPixels - h - edge).coerceAtLeast(edge))
+                        wm().updateViewLayout(root, params)
+                        barX = params.x
+                        barY = params.y
                         return true
                     }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        if (!dragging) v.performClick()
-                        return true
-                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> return true
                 }
                 return false
             }
         })
     }
 
-    private fun findChildAt(group: ViewGroup, x: Float, y: Float): View? {
-        for (i in group.childCount - 1 downTo 0) {
-            val child = group.getChildAt(i)
-            if (x >= child.left && x <= child.right && y >= child.top && y <= child.bottom) {
-                if (child is ViewGroup) {
-                    val nested = findChildAt(child, x - child.left, y - child.top)
-                    if (nested != null) return nested
-                }
-                return child
-            }
-        }
-        return null
+    private fun dragHandleView(): TextView = TextView(this).apply {
+        text = "⠿"
+        gravity = Gravity.CENTER
+        setTextColor(0xFF94A3B8.toInt())
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        setPadding(dp(6), dp(2), dp(6), dp(6))
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        )
     }
 
     private fun pillBg(): GradientDrawable = GradientDrawable().apply {

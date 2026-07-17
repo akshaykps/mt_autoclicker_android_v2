@@ -52,13 +52,20 @@ class MainActivity : ComponentActivity() {
                         .fillMaxSize()
                         .background(MtDeep),
                 ) {
-                    MtAppRoot(
-                        version = BuildConfig.VERSION_NAME,
-                        onKillAll = { AutomationLauncher.killAll(this@MainActivity) },
-                    )
+                    MtAppRoot(version = BuildConfig.VERSION_NAME)
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Hide float bars when user is back inside MT Auto Clicker.
+        window.decorView.postDelayed({
+            if (!isFinishing) {
+                AutomationLauncher.onMainAppForeground(this)
+            }
+        }, 350)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -86,14 +93,13 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun MtAppRoot(version: String, onKillAll: () -> Unit) {
+private fun MtAppRoot(version: String) {
     var route by rememberSaveable { mutableStateOf(AppRoute.HOME) }
 
     when (route) {
         AppRoute.HOME -> HomeScreen(
             version = version,
             onNavigate = { route = it },
-            onKillAll = onKillAll,
         )
         AppRoute.SINGLE_TARGET -> SingleTargetScreen(
             onBack = { route = AppRoute.HOME },
