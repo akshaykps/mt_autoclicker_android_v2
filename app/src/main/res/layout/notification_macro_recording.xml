@@ -21,7 +21,7 @@
         android:layout_height="wrap_content"
         android:fontFamily="sans-serif-medium"
         android:maxLines="1"
-        android:text="Recording"
+        android:text="Recording…"
         android:textColor="#FF1C1C1E"
         android:textSize="14sp" />
 

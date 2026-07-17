@@ -119,7 +119,6 @@ fun MultiTargetScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
                 title = "Click mode",
                 modifier = Modifier.onGloballyPositioned { settingsY = it.positionInParent().y.toInt() },
             ) {
-                MouseButtonDropdown(config.mouseButton) { config = config.copy(mouseButton = it) }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,

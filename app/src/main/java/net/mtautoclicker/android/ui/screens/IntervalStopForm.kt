@@ -21,10 +21,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import net.mtautoclicker.android.data.IntervalConfig
 import net.mtautoclicker.android.data.IntervalUnit
-import net.mtautoclicker.android.data.MouseButton
 import net.mtautoclicker.android.data.StopCondition
 import net.mtautoclicker.android.data.StopType
 import net.mtautoclicker.android.data.TargetMode
+import net.mtautoclicker.android.engine.MIN_CLICK_INTERVAL_MS
 import net.mtautoclicker.android.ui.components.MtTextField
 import net.mtautoclicker.android.ui.components.SettingsCard
 import net.mtautoclicker.android.ui.theme.MtBlue
@@ -55,8 +55,20 @@ fun IntervalStopForm(
     SettingsCard(title = "Timing") {
         MtTextField(
             value = interval.value.toString(),
-            onValueChange = { v -> onIntervalChange(interval.copy(value = v.toDoubleOrNull() ?: interval.value)) },
-            label = "Interval",
+            onValueChange = { v ->
+                val parsed = v.toDoubleOrNull() ?: interval.value
+                val clamped = if (interval.unit == IntervalUnit.MS) {
+                    parsed.coerceAtLeast(MIN_CLICK_INTERVAL_MS.toDouble())
+                } else {
+                    parsed.coerceAtLeast(0.001)
+                }
+                onIntervalChange(interval.copy(value = clamped))
+            },
+            label = "Interval (min ${MIN_CLICK_INTERVAL_MS} ms)",
+        )
+        Text(
+            "Fastest reliable rate on Android is about ${MIN_CLICK_INTERVAL_MS} ms (~${1000 / MIN_CLICK_INTERVAL_MS} CPS). Device may run slightly slower under load.",
+            color = MtMid,
         )
         UnitDropdown(interval.unit) { onIntervalChange(interval.copy(unit = it)) }
         Row(
@@ -161,36 +173,6 @@ private fun StopTypeDropdown(selected: StopType, onSelect: (StopType) -> Unit) {
                     text = { Text(type.name.lowercase()) },
                     onClick = {
                         onSelect(type)
-                        expanded = false
-                    },
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun MouseButtonDropdown(selected: MouseButton, onSelect: (MouseButton) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-        OutlinedTextField(
-            value = selected.name.lowercase(),
-            onValueChange = {},
-            readOnly = true,
-            label = { Text("Mouse button") },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-            colors = MtDropdownColors(),
-            modifier = Modifier
-                .menuAnchor()
-                .fillMaxWidth(),
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            MouseButton.entries.forEach { button ->
-                DropdownMenuItem(
-                    text = { Text(button.name.lowercase()) },
-                    onClick = {
-                        onSelect(button)
                         expanded = false
                     },
                 )

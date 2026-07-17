@@ -63,9 +63,9 @@ object AutomationLauncher {
         dismissRefreshSession(context)
         MacroHub.armRecordReady()
         MacroOverlayService.show(context)
-        if (minimizeApp) {
-            minimizeToBackground(context)
-        }
+        // Do not minimize until the user confirms "Start recording" on the popup —
+        // otherwise a failed/dismissed overlay leaves them on Home with nothing.
+        MacroOverlayService.pendingMinimizeAfterStart = minimizeApp
         return LaunchResult.Ok
     }
 

@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.map
@@ -26,6 +27,14 @@ class SettingsRepository(private val context: Context) {
     private val rememberBrowserKey = booleanPreferencesKey("remember_browser_choice")
     private val preferredRefreshAppKey = stringPreferencesKey("preferred_refresh_app_package")
     private val rememberRefreshAppKey = booleanPreferencesKey("remember_refresh_app_choice")
+    private val targetMarkerScaleKey = intPreferencesKey("target_marker_scale_percent")
+
+    companion object {
+        const val DEFAULT_MARKER_SCALE = 100
+        const val MIN_MARKER_SCALE = 50
+        const val MAX_MARKER_SCALE = 200
+        const val MARKER_SCALE_STEP = 10
+    }
 
     val deviceId = context.settingsDataStore.data.map { prefs ->
         prefs[deviceIdKey] ?: ""
@@ -41,6 +50,12 @@ class SettingsRepository(private val context: Context) {
             "dark" -> ThemePreference.DARK
             else -> ThemePreference.SYSTEM
         }
+    }
+
+    /** Target marker size for Single/Multi Target (50–200%, default 100). */
+    val targetMarkerScalePercent = context.settingsDataStore.data.map { prefs ->
+        (prefs[targetMarkerScaleKey] ?: DEFAULT_MARKER_SCALE)
+            .coerceIn(MIN_MARKER_SCALE, MAX_MARKER_SCALE)
     }
 
     val preferredAppPackage = context.settingsDataStore.data.map { prefs ->
@@ -65,7 +80,6 @@ class SettingsRepository(private val context: Context) {
         prefs[rememberRefreshAppKey] ?: false
     }
 
-
     suspend fun getOrCreateDeviceId(): String {
         var result = ""
         context.settingsDataStore.edit { prefs ->
@@ -87,6 +101,12 @@ class SettingsRepository(private val context: Context) {
                 ThemePreference.DARK -> "dark"
                 ThemePreference.SYSTEM -> "system"
             }
+        }
+    }
+
+    suspend fun setTargetMarkerScalePercent(percent: Int) {
+        context.settingsDataStore.edit {
+            it[targetMarkerScaleKey] = percent.coerceIn(MIN_MARKER_SCALE, MAX_MARKER_SCALE)
         }
     }
 

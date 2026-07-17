@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Matches system screen-record style: red rounded tile + white camera. -->
+<!-- Red tile + REC wordmark — OxygenOS status-bar chip uses this launcher icon. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -8,10 +8,16 @@
     <path
         android:fillColor="#E11D28"
         android:pathData="M18,18h72c6.6,0 12,5.4 12,12v72c0,6.6 -5.4,12 -12,12h-72c-6.6,0 -12,-5.4 -12,-12v-72c0,-6.6 5.4,-12 12,-12z" />
+    <!-- rec dot -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M34,40h28c3.3,0 6,2.7 6,6v28c0,3.3 -2.7,6 -6,6h-28c-3.3,0 -6,-2.7 -6,-6v-28c0,-3.3 2.7,-6 6,-6z" />
+        android:pathData="M30,54m-8,0a8,8 0,1,1 16,0a8,8 0,1,1 -16,0" />
+    <!-- R -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M70,46l16,-8c1.2,-0.6 2.6,0.3 2.6,1.6v40.8c0,1.3 -1.4,2.2 -2.6,1.6l-16,-8z" />
+        android:pathData="M44,40h10c5.5,0 9.5,3.5 9.5,8.5c0,3.6 -2.1,6.5 -5.5,7.7L68,70h-7.5l-8.5,-9.5H51V70h-7V40zM51,46.5v7h5.5c2.6,0 4.2,-1.4 4.2,-3.5s-1.6,-3.5 -4.2,-3.5H51z" />
+    <!-- E -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M72,40h22v6.5H79.5v5H91v6H79.5V63.5H94V70H72V40z" />
 </vector>

@@ -134,6 +134,8 @@ class MtAccessibilityService : AccessibilityService() {
         y: Float,
         button: MouseButton,
         randomOffsetPx: Int,
+        /** High-CPS path: 1ms stroke + short wait (Single/Multi Target). */
+        fast: Boolean = false,
     ): Boolean {
         val jitterX = if (randomOffsetPx > 0) Random.nextInt(-randomOffsetPx, randomOffsetPx + 1) else 0
         val jitterY = if (randomOffsetPx > 0) Random.nextInt(-randomOffsetPx, randomOffsetPx + 1) else 0
@@ -141,9 +143,16 @@ class MtAccessibilityService : AccessibilityService() {
         val clickY = y + jitterY
 
         return when (button) {
-            MouseButton.LEFT -> dispatchTap(clickX, clickY)
+            MouseButton.LEFT -> {
+                if (fast) {
+                    // 1ms is the API minimum stroke; short timeout keeps the loop near ~10ms.
+                    dispatchTap(clickX, clickY, durationMs = 1L, timeoutMs = 48L)
+                } else {
+                    dispatchTap(clickX, clickY, durationMs = 16L, timeoutMs = 3_000L)
+                }
+            }
             MouseButton.RIGHT -> dispatchLongPress(clickX, clickY, 600L)
-            MouseButton.MIDDLE -> dispatchTap(clickX, clickY, durationMs = 80L)
+            MouseButton.MIDDLE -> dispatchTap(clickX, clickY, durationMs = 40L)
         }
     }
 

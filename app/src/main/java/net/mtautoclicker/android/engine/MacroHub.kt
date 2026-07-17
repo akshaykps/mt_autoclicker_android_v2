@@ -69,8 +69,9 @@ object MacroHub {
     fun shouldAutoDismissOnMainApp(): Boolean {
         val mode = _snapshot.value.mode
         if (mode == MacroOverlayMode.IDLE) return false
-        // Never kill an in-progress recording — notification taps open MainActivity
-        // and were wiping the session after the first gesture.
+        // Keep Start recording? dialog and active recording alive — MainActivity
+        // onResume was wiping RECORD_READY before the user could tap Start.
+        if (mode == MacroOverlayMode.RECORD_READY) return false
         if (mode == MacroOverlayMode.RECORDING) return false
         if (mode == MacroOverlayMode.PLAYBACK && _snapshot.value.isPlaying) return false
         if (SystemClock.elapsedRealtime() < suppressMainAppDismissUntilMs) return false

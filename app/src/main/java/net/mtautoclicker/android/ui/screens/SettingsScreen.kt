@@ -21,6 +21,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Accessibility
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AdsClick
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.DarkMode
@@ -30,9 +32,11 @@ import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -53,6 +57,7 @@ import kotlinx.coroutines.launch
 import net.mtautoclicker.android.MtApplication
 import net.mtautoclicker.android.data.PermissionHelper
 import net.mtautoclicker.android.data.PermissionKind
+import net.mtautoclicker.android.data.SettingsRepository
 import net.mtautoclicker.android.data.ThemePreference
 import net.mtautoclicker.android.ui.components.MtPrimaryButton
 import net.mtautoclicker.android.ui.components.PageScaffold
@@ -71,6 +76,8 @@ fun SettingsScreen(onBack: () -> Unit) {
     val analyticsEnabled by MtApplication.instance.settingsRepository.analyticsEnabled.collectAsState(initial = true)
     val themePreference by MtApplication.instance.settingsRepository.themePreference
         .collectAsState(initial = ThemePreference.SYSTEM)
+    val markerScale by MtApplication.instance.settingsRepository.targetMarkerScalePercent
+        .collectAsState(initial = SettingsRepository.DEFAULT_MARKER_SCALE)
     val overlayOk = PermissionHelper.canDrawOverlays(context)
     val accessibilityOk = PermissionHelper.isAccessibilityEnabled(context)
 
@@ -117,6 +124,82 @@ fun SettingsScreen(onBack: () -> Unit) {
                         }
                     },
                 )
+            }
+        }
+
+        SettingsSection(
+            icon = Icons.Rounded.AdsClick,
+            title = "Target markers",
+            subtitle = "Single Target & Multi Target float markers only",
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MtRow)
+                    .border(1.dp, MtBorder, RoundedCornerShape(14.dp))
+                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                val previewOuter = (36 * markerScale / 100f).coerceIn(18f, 72f).dp
+                val previewInner = (14 * markerScale / 100f).coerceIn(8f, 28f).dp
+                Box(
+                    modifier = Modifier.size(56.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(previewOuter)
+                            .clip(CircleShape)
+                            .border(2.dp, MtBlue, CircleShape)
+                            .background(MtBlue.copy(alpha = 0.12f)),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(previewInner)
+                            .clip(CircleShape)
+                            .background(MtBlue)
+                            .border(1.dp, Color.White, CircleShape),
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Marker size",
+                        color = MtHi,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
+                    )
+                    Text(
+                        "$markerScale%",
+                        color = MtMid,
+                        fontSize = 12.sp,
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        scope.launch {
+                            MtApplication.instance.settingsRepository.setTargetMarkerScalePercent(
+                                markerScale - SettingsRepository.MARKER_SCALE_STEP,
+                            )
+                        }
+                    },
+                    enabled = markerScale > SettingsRepository.MIN_MARKER_SCALE,
+                ) {
+                    Icon(Icons.Rounded.Remove, contentDescription = "Decrease", tint = MtHi)
+                }
+                IconButton(
+                    onClick = {
+                        scope.launch {
+                            MtApplication.instance.settingsRepository.setTargetMarkerScalePercent(
+                                markerScale + SettingsRepository.MARKER_SCALE_STEP,
+                            )
+                        }
+                    },
+                    enabled = markerScale < SettingsRepository.MAX_MARKER_SCALE,
+                ) {
+                    Icon(Icons.Rounded.Add, contentDescription = "Increase", tint = MtHi)
+                }
             }
         }
 

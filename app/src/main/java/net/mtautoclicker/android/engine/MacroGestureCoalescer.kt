@@ -13,6 +13,9 @@ import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 
+/** Which physical edge a dedicated capture strip covers. */
+enum class NavEdge { LEFT, RIGHT, TOP, BOTTOM }
+
 /**
  * Exact display bounds + system-gesture edge bands used for nav classification
  * and the on-screen capture guide.
@@ -42,35 +45,46 @@ data class NavEdgeBands(
             var top = 0
             var bottom = 0
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                // Prefer live insets from the display (device-exact).
+                // OnePlus Nord CE4 Lite dumpsys example:
+                //   systemGestures L/R = 90, mandatory top = 143, bottom = 96
                 val insets = runCatching {
-                    wm.maximumWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
-                        WindowInsets.Type.systemGestures() or
-                            WindowInsets.Type.mandatorySystemGestures(),
-                    )
+                    wm.maximumWindowMetrics.windowInsets
                 }.getOrNull()
                 if (insets != null) {
-                    left = insets.left
-                    right = insets.right
-                    top = insets.top
-                    bottom = insets.bottom
+                    val side = insets.getInsetsIgnoringVisibility(
+                        WindowInsets.Type.systemGestures(),
+                    )
+                    val mandatory = insets.getInsetsIgnoringVisibility(
+                        WindowInsets.Type.mandatorySystemGestures(),
+                    )
+                    val status = insets.getInsetsIgnoringVisibility(
+                        WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout(),
+                    )
+                    left = max(side.left, mandatory.left)
+                    right = max(side.right, mandatory.right)
+                    // Top shade / status: use mandatory (often taller than status bar alone).
+                    top = maxOf(mandatory.top, status.top, side.top)
+                    bottom = max(side.bottom, mandatory.bottom)
                 }
             }
 
             // Fallbacks when insets are missing (some overlay contexts).
-            if (left <= 0) left = (30f * density).toInt().coerceAtLeast(48)   // ~90px @3x
-            if (right <= 0) right = (30f * density).toInt().coerceAtLeast(48)
-            if (bottom <= 0) bottom = (32f * density).toInt().coerceAtLeast(64) // ~96px @3x
-            if (top <= 0) top = (36f * density).toInt().coerceAtLeast(72)       // ~status/cutout
+            // Match common ColorOS / OxygenOS gesture-nav bands @3x density.
+            if (left <= 0) left = (30f * density).toInt().coerceAtLeast(90)
+            if (right <= 0) right = (30f * density).toInt().coerceAtLeast(90)
+            if (bottom <= 0) bottom = (32f * density).toInt().coerceAtLeast(96)
+            if (top <= 0) top = (48f * density).toInt().coerceAtLeast(143)
 
-            // Tiny pad: OEM often delivers first touch a few px inside the true edge.
-            val pad = (3f * density).toInt().coerceIn(4, 12)
+            // Small inward pad: first ACTION_DOWN is often a few px inside the band.
+            val pad = (4f * density).toInt().coerceIn(6, 14)
             return NavEdgeBands(
                 screenW = w,
                 screenH = h,
-                leftPx = (left + pad).coerceAtMost(w / 6),
-                rightPx = (right + pad).coerceAtMost(w / 6),
-                topPx = (top + pad).coerceAtMost(h / 8),
-                bottomPx = (bottom + pad).coerceAtMost(h / 8),
+                leftPx = (left + pad).coerceAtMost(w / 5),
+                rightPx = (right + pad).coerceAtMost(w / 5),
+                topPx = (top + pad).coerceAtMost(h / 6),
+                bottomPx = (bottom + pad).coerceAtMost(h / 6),
             )
         }
 
@@ -165,9 +179,12 @@ object MacroGestureCoalescer {
     }
 
     /**
-     * Strict edge classification:
-     * - Finger must **start** inside the system-gesture band (not merely pass through it).
-     * - Movement must be clearly directional (avoids confusing content scrolls).
+     * Map edge-started strokes to system global actions.
+     *
+     * OEMs often deliver the first touch a bit *inside* the true system-gesture
+     * inset, so we expand bands slightly and also check the first few points.
+     * Failed nav matches fall through (return null) so [coalesce] can still
+     * record a normal swipe/tap — never drop the stroke.
      */
     fun classifySystemNav(
         points: List<MacroPoint>,
@@ -180,11 +197,24 @@ object MacroGestureCoalescer {
         val end = points.last()
         val dx = end.x - start.x
         val dy = end.y - start.y
-        val minTravel = 48f * density
-        val dominant = 1.25f // axis must dominate the other by 25%+
+        // ~36dp travel; 48dp was too strict on quick edge flicks @3x density.
+        val minTravel = 36f * density
+        val dominant = 1.05f
+        // Pad past system insets — first ACTION_DOWN is often inset by the OEM.
+        val pad = (18f * density).toInt().coerceIn(24, 64)
+        val leftBand = (edges.leftPx + pad).coerceAtMost(edges.screenW / 5)
+        val rightBand = (edges.rightPx + pad).coerceAtMost(edges.screenW / 5)
+        val topBand = (edges.topPx + pad).coerceAtMost(edges.screenH / 6)
+        val bottomBand = (edges.bottomPx + pad).coerceAtMost(edges.screenH / 6)
 
-        // --- Notifications: start in top band, swipe down ---
-        if (start.y <= edges.topPx) {
+        val early = points.take(3)
+        val nearTop = early.any { it.y <= topBand }
+        val nearLeft = early.any { it.x <= leftBand }
+        val nearRight = early.any { it.x >= edges.screenW - rightBand }
+        val nearBottom = early.any { it.y >= edges.screenH - bottomBand }
+
+        // --- Notifications: start near top, swipe down ---
+        if (nearTop) {
             val mostlyVertical = abs(dy) >= abs(dx) * dominant
             if (dy >= minTravel && mostlyVertical) {
                 return MacroStep(
@@ -193,18 +223,15 @@ object MacroGestureCoalescer {
                     durationMs = 50L,
                 )
             }
-            // Started at top but not a clean shade swipe → treat as normal gesture.
-            return null
         }
 
-        // --- Back: start in left/right band, swipe inward ---
-        val fromLeft = start.x <= edges.leftPx
-        val fromRight = start.x >= edges.screenW - edges.rightPx
-        if (fromLeft || fromRight) {
+        // --- Back: start near left/right, swipe inward ---
+        if (nearLeft || nearRight) {
             val mostlyHorizontal = abs(dx) >= abs(dy) * dominant
             val inward = when {
-                fromLeft && !fromRight -> dx >= minTravel
-                fromRight && !fromLeft -> dx <= -minTravel
+                nearLeft && !nearRight -> dx >= minTravel
+                nearRight && !nearLeft -> dx <= -minTravel
+                nearLeft && nearRight -> abs(dx) >= minTravel
                 else -> false
             }
             if (inward && mostlyHorizontal) {
@@ -214,11 +241,10 @@ object MacroGestureCoalescer {
                     durationMs = 50L,
                 )
             }
-            return null
         }
 
-        // --- Home / Recents: start in bottom band, swipe up ---
-        if (start.y >= edges.screenH - edges.bottomPx) {
+        // --- Home / Recents: start near bottom, swipe up ---
+        if (nearBottom) {
             val mostlyVertical = abs(dy) >= abs(dx) * dominant
             if ((-dy) >= minTravel && mostlyVertical) {
                 val kind = if (durationMs >= RECENTS_HOLD_MS) {
@@ -228,11 +254,59 @@ object MacroGestureCoalescer {
                 }
                 return MacroStep(kind = kind, delayMs = 0L, durationMs = 50L)
             }
-            return null
         }
 
-        // Started in the content area → never a system-nav gesture.
         return null
+    }
+
+    /**
+     * Classify a stroke that was captured on a dedicated edge strip.
+     * Start-position checks are skipped — the strip identity is the edge.
+     */
+    fun classifyKnownEdge(
+        edge: NavEdge,
+        points: List<MacroPoint>,
+        durationMs: Long,
+        density: Float,
+    ): MacroStep? {
+        if (points.size < 2) return null
+        val start = points.first()
+        val end = points.last()
+        val dx = end.x - start.x
+        val dy = end.y - start.y
+        val minTravel = 28f * density
+        val dominant = 0.85f
+        return when (edge) {
+            NavEdge.LEFT -> {
+                if (dx >= minTravel && abs(dx) >= abs(dy) * dominant) {
+                    MacroStep(kind = MacroStepKind.GLOBAL_BACK, delayMs = 0L, durationMs = 50L)
+                } else null
+            }
+            NavEdge.RIGHT -> {
+                if (dx <= -minTravel && abs(dx) >= abs(dy) * dominant) {
+                    MacroStep(kind = MacroStepKind.GLOBAL_BACK, delayMs = 0L, durationMs = 50L)
+                } else null
+            }
+            NavEdge.TOP -> {
+                if (dy >= minTravel && abs(dy) >= abs(dx) * dominant) {
+                    MacroStep(
+                        kind = MacroStepKind.GLOBAL_NOTIFICATIONS,
+                        delayMs = 0L,
+                        durationMs = 50L,
+                    )
+                } else null
+            }
+            NavEdge.BOTTOM -> {
+                if ((-dy) >= minTravel && abs(dy) >= abs(dx) * dominant) {
+                    val kind = if (durationMs >= RECENTS_HOLD_MS) {
+                        MacroStepKind.GLOBAL_RECENTS
+                    } else {
+                        MacroStepKind.GLOBAL_HOME
+                    }
+                    MacroStep(kind = kind, delayMs = 0L, durationMs = 50L)
+                } else null
+            }
+        }
     }
 
     /** @deprecated Prefer [classifySystemNav] with [NavEdgeBands]. */

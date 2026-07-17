@@ -57,13 +57,13 @@
             </intent-filter>
         </activity-alias>
 
-        <!-- Shown while macro recording so status bar can use a camera tile. -->
+        <!-- Shown while macro recording so status bar can use a REC tile / label. -->
         <activity-alias
             android:name=".LauncherRecording"
             android:enabled="false"
             android:exported="true"
             android:icon="@drawable/ic_launcher_recording"
-            android:label="@string/app_name"
+            android:label="@string/recording_status_label"
             android:roundIcon="@drawable/ic_launcher_recording"
             android:targetActivity=".MainActivity">
             <intent-filter>

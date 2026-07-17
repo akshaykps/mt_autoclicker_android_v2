@@ -28,8 +28,11 @@ import net.mtautoclicker.android.data.AutomationPlan
 import net.mtautoclicker.android.data.AutomationRunState
 import net.mtautoclicker.android.data.ClickTarget
 import net.mtautoclicker.android.data.FeatureKind
+import net.mtautoclicker.android.data.MouseButton
 import net.mtautoclicker.android.data.TargetMode
 import net.mtautoclicker.android.engine.AutomationHub
+import net.mtautoclicker.android.engine.MIN_CLICK_INTERVAL_MS
+import net.mtautoclicker.android.engine.delayUntilElapsedRealtime
 import net.mtautoclicker.android.engine.resolveIntervalMs
 import net.mtautoclicker.android.engine.shouldStop
 import kotlin.random.Random
@@ -91,13 +94,19 @@ class ClickAutomationService : Service() {
             val delayMs = plan.interval.startDelayMs
             if (delayMs > 0) delay(delayMs)
 
+            // Deadline schedule: interval is click-to-click, not "after click finishes"
+            // (same pattern as the Chrome extension high-CPS loop).
+            var nextDue = SystemClock.elapsedRealtime()
+            val baseInterval = resolveIntervalMs(plan.interval)
+            val fast = !plan.interval.variable && baseInterval <= 50L
+
             while (isActive && !paused) {
                 val targets = AutomationHub.snapshot.value.targets
                 if (targets.isEmpty()) break
 
                 val clicksInCycle = when (plan) {
-                    is AutomationPlan.Single -> performSingleCycle(plan, targets)
-                    is AutomationPlan.Multi -> performMultiCycle(plan, targets)
+                    is AutomationPlan.Single -> performSingleCycle(plan, targets, fast)
+                    is AutomationPlan.Multi -> performMultiCycle(plan, targets, fast)
                 }
                 clicksThisRun += clicksInCycle
                 cycles++
@@ -106,8 +115,15 @@ class ClickAutomationService : Service() {
                 AutomationHub.updateProgress(cycles, elapsed)
                 if (shouldStop(plan.stop, cycles, elapsed)) break
 
-                val waitMs = resolveIntervalMs(plan.interval).coerceAtLeast(1L)
-                delay(waitMs)
+                val waitMs = resolveIntervalMs(plan.interval).coerceAtLeast(MIN_CLICK_INTERVAL_MS)
+                nextDue += waitMs
+                val now = SystemClock.elapsedRealtime()
+                if (now > nextDue + waitMs) {
+                    // Fell far behind (system couldn't keep up) — resync so we don't burst.
+                    nextDue = now
+                } else {
+                    delayUntilElapsedRealtime(nextDue)
+                }
             }
 
             val runtime = SystemClock.elapsedRealtime() - startedAt
@@ -140,27 +156,40 @@ class ClickAutomationService : Service() {
         }
     }
 
-    private suspend fun performSingleCycle(plan: AutomationPlan.Single, targets: List<ClickTarget>): Int {
+    private suspend fun performSingleCycle(
+        plan: AutomationPlan.Single,
+        targets: List<ClickTarget>,
+        fast: Boolean,
+    ): Int {
         val target = targets.first()
         val service = MtAccessibilityService.instance ?: return 0
         val (x, y) = resolvePoint(plan.config.targetMode, target)
-        val ok = service.performClick(x, y, plan.mouseButton, plan.interval.randomOffsetPx)
+        val ok = service.performClick(
+            x,
+            y,
+            MouseButton.LEFT,
+            plan.interval.randomOffsetPx,
+            fast = fast,
+        )
         return if (ok) 1 else 0
     }
 
-    private suspend fun performMultiCycle(plan: AutomationPlan.Multi, targets: List<ClickTarget>): Int {
+    private suspend fun performMultiCycle(
+        plan: AutomationPlan.Multi,
+        targets: List<ClickTarget>,
+        fast: Boolean,
+    ): Int {
         val service = MtAccessibilityService.instance ?: return 0
         var count = 0
-        if (plan.parallel) {
-            for (target in targets) {
-                val ok = service.performClick(target.x, target.y, plan.mouseButton, plan.interval.randomOffsetPx)
-                if (ok) count++
-            }
-        } else {
-            for (target in targets) {
-                val ok = service.performClick(target.x, target.y, plan.mouseButton, plan.interval.randomOffsetPx)
-                if (ok) count++
-            }
+        for (target in targets) {
+            val ok = service.performClick(
+                target.x,
+                target.y,
+                MouseButton.LEFT,
+                plan.interval.randomOffsetPx,
+                fast = fast,
+            )
+            if (ok) count++
         }
         return count
     }

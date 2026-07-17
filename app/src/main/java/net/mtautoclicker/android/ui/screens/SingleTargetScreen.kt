@@ -61,7 +61,6 @@ fun SingleTargetScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
 
     val runSummary = listOf(
         formatInterval(config.interval),
-        "${config.mouseButton.name.lowercase()} click",
         config.targetMode.name.lowercase(),
         formatStopSummary(config.stop),
     ).joinToString(" · ")
@@ -114,7 +113,6 @@ fun SingleTargetScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
                 modifier = Modifier.onGloballyPositioned { settingsY = it.positionInParent().y.toInt() },
             ) {
                 TargetModeDropdown(config.targetMode) { config = config.copy(targetMode = it) }
-                MouseButtonDropdown(config.mouseButton) { config = config.copy(mouseButton = it) }
             }
 
             IntervalStopForm(

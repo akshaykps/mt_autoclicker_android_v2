@@ -48,11 +48,14 @@ import net.mtautoclicker.android.data.IntervalConfig
 import net.mtautoclicker.android.data.IntervalUnit
 import net.mtautoclicker.android.data.MouseButton
 import net.mtautoclicker.android.data.MultiTargetConfig
+import net.mtautoclicker.android.data.SettingsRepository
 import net.mtautoclicker.android.data.SingleTargetConfig
 import net.mtautoclicker.android.data.StopCondition
 import net.mtautoclicker.android.data.StopType
 import net.mtautoclicker.android.data.TargetMode
 import net.mtautoclicker.android.engine.AutomationHub
+import net.mtautoclicker.android.engine.MIN_CLICK_INTERVAL_MS
+import kotlin.math.roundToInt
 
 /**
  * Vertical MT float pill (matches Chrome extension / desktop control bar)
@@ -87,6 +90,7 @@ class FloatingOverlayService : Service() {
     private var zoneDragStartX = 0f
     private var zoneDragStartY = 0f
     private var zonePreview: View? = null
+    @Volatile private var markerScalePercent = SettingsRepository.DEFAULT_MARKER_SCALE
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -99,6 +103,14 @@ class FloatingOverlayService : Service() {
         barX = (dm.widthPixels - dp(48)).coerceAtLeast(dp(8))
         barY = (dm.heightPixels / 2 - dp(110)).coerceAtLeast(dp(48))
         showArmedPill()
+        scope.launch {
+            MtApplication.instance.settingsRepository.targetMarkerScalePercent.collectLatest { scale ->
+                markerScalePercent = scale
+                if (markersVisible) {
+                    refreshMarkers(AutomationHub.snapshot.value.targets)
+                }
+            }
+        }
         scope.launch {
             AutomationHub.snapshot.collectLatest { snap ->
                 when (snap.runState) {
@@ -149,9 +161,12 @@ class FloatingOverlayService : Service() {
         val pill = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(4), dp(6), dp(4), dp(8))
+            // Side padding must clear circle + stroke so icons aren't clipped.
+            setPadding(dp(8), dp(8), dp(8), dp(10))
             background = pillBg()
             elevation = dp(10).toFloat()
+            clipChildren = false
+            clipToPadding = false
         }
 
         val dragHandle = dragHandleView()
@@ -161,6 +176,8 @@ class FloatingOverlayService : Service() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(0, 0, 0, 0)
+            clipChildren = false
+            clipToPadding = false
         }
         topSection = top
 
@@ -185,6 +202,8 @@ class FloatingOverlayService : Service() {
         val bottom = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
+            clipChildren = false
+            clipToPadding = false
         }
         bottomSection = bottom
 
@@ -251,9 +270,9 @@ class FloatingOverlayService : Service() {
         topSection?.visibility = gone
         bottomSection?.visibility = gone
         floatBar?.setPadding(
-            dp(5),
+            dp(8),
             if (collapsed) dp(6) else dp(8),
-            dp(5),
+            dp(8),
             if (collapsed) dp(6) else dp(10),
         )
         // Collapse spacers by rebuilding is heavy — hide sections is enough
@@ -290,9 +309,11 @@ class FloatingOverlayService : Service() {
         val pill = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(5), dp(10), dp(5), dp(10))
+            setPadding(dp(8), dp(10), dp(8), dp(10))
             background = pillBg()
             elevation = dp(12).toFloat()
+            clipChildren = false
+            clipToPadding = false
         }
 
         val dragHandle = dragHandleView()
@@ -389,7 +410,6 @@ class FloatingOverlayService : Service() {
         val isMulti = plan is AutomationPlan.Multi
         val interval = plan.interval
         val stop = plan.stop
-        val mouse = plan.mouseButton
         val parallel = (plan as? AutomationPlan.Multi)?.config?.parallel == true
 
         val scroll = ScrollView(this).apply {
@@ -465,17 +485,6 @@ class FloatingOverlayService : Service() {
         intervalRow.addView(unitSpinner)
         panel.addView(intervalRow)
 
-        panel.addView(label("Mouse button"))
-        val mouseSpinner = spinner(
-            listOf("left", "right", "middle"),
-            when (mouse) {
-                MouseButton.LEFT -> 0
-                MouseButton.RIGHT -> 1
-                MouseButton.MIDDLE -> 2
-            },
-        )
-        panel.addView(mouseSpinner)
-
         var targetModeSpinner: Spinner? = null
         if (!isMulti) {
             val single = (plan as AutomationPlan.Single).config
@@ -521,13 +530,18 @@ class FloatingOverlayService : Service() {
             }
         }
         val save = chipBtn("Save", 0xFF3B82F6.toInt()) {
+            val unit = when (unitSpinner.selectedItemPosition) {
+                1 -> IntervalUnit.S
+                2 -> IntervalUnit.MIN
+                else -> IntervalUnit.MS
+            }
+            var value = intervalInput.text.toString().toDoubleOrNull() ?: interval.value
+            if (unit == IntervalUnit.MS) {
+                value = value.coerceAtLeast(MIN_CLICK_INTERVAL_MS.toDouble())
+            }
             val newInterval = IntervalConfig(
-                value = intervalInput.text.toString().toDoubleOrNull() ?: interval.value,
-                unit = when (unitSpinner.selectedItemPosition) {
-                    1 -> IntervalUnit.S
-                    2 -> IntervalUnit.MIN
-                    else -> IntervalUnit.MS
-                },
+                value = value,
+                unit = unit,
                 startDelayMs = delayInput.text.toString().toLongOrNull() ?: 0L,
                 randomOffsetPx = offsetInput.text.toString().toIntOrNull() ?: 0,
             )
@@ -542,11 +556,7 @@ class FloatingOverlayService : Service() {
                 )
                 else -> StopCondition(type = StopType.NEVER)
             }
-            val newMouse = when (mouseSpinner.selectedItemPosition) {
-                1 -> MouseButton.RIGHT
-                2 -> MouseButton.MIDDLE
-                else -> MouseButton.LEFT
-            }
+            val newMouse = MouseButton.LEFT
             when (plan) {
                 is AutomationPlan.Single -> {
                     val mode = if (targetModeSpinner?.selectedItemPosition == 1) {
@@ -768,6 +778,11 @@ class FloatingOverlayService : Service() {
     private fun refreshMarkers(targets: List<ClickTarget>) {
         clearMarkers()
         val isMulti = AutomationHub.activePlan is AutomationPlan.Multi
+        val scale = markerScalePercent.coerceIn(
+            SettingsRepository.MIN_MARKER_SCALE,
+            SettingsRepository.MAX_MARKER_SCALE,
+        ) / 100f
+        val strokePx = dp((2f * scale).coerceAtLeast(1f).roundToInt())
         targets.forEachIndexed { index, target ->
             val zw = target.zoneWidth
             val zh = target.zoneHeight
@@ -776,7 +791,7 @@ class FloatingOverlayService : Service() {
                 val zone = View(this).apply {
                     background = GradientDrawable().apply {
                         setColor(0x1F3B82F6)
-                        setStroke(dp(2), 0xFF3B82F6.toInt())
+                        setStroke(strokePx, 0xFF3B82F6.toInt())
                         cornerRadius = dp(4).toFloat()
                     }
                 }
@@ -797,18 +812,19 @@ class FloatingOverlayService : Service() {
                         index = index + 1,
                         cx = target.x + zw / 2f,
                         cy = target.y + zh / 2f,
+                        scale = scale,
                     )
                 }
             } else if (isMulti) {
-                addNumberBadge(index = index + 1, cx = target.x, cy = target.y)
+                addNumberBadge(index = index + 1, cx = target.x, cy = target.y, scale = scale)
             } else {
                 // Single-target point: plain blue dot + soft ring, no number
-                val ringSize = dp(36)
+                val ringSize = dp((36f * scale).roundToInt().coerceIn(18, 72))
                 val ring = View(this).apply {
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.OVAL
                         setColor(0x143B82F6)
-                        setStroke(dp(2), 0xFF3B82F6.toInt())
+                        setStroke(strokePx, 0xFF3B82F6.toInt())
                     }
                 }
                 markerViews.add(ring)
@@ -823,12 +839,12 @@ class FloatingOverlayService : Service() {
                         touchable = false,
                     ),
                 )
-                val dotSize = dp(14)
+                val dotSize = dp((14f * scale).roundToInt().coerceIn(8, 28))
                 val dot = View(this).apply {
                     background = GradientDrawable().apply {
                         shape = GradientDrawable.OVAL
                         setColor(0xFF3B82F6.toInt())
-                        setStroke(dp(2), 0xFFFFFFFF.toInt())
+                        setStroke(strokePx.coerceAtMost(dp(3)), 0xFFFFFFFF.toInt())
                     }
                 }
                 markerViews.add(dot)
@@ -847,13 +863,14 @@ class FloatingOverlayService : Service() {
         }
     }
 
-    private fun addNumberBadge(index: Int, cx: Float, cy: Float) {
-        val size = dp(26)
+    private fun addNumberBadge(index: Int, cx: Float, cy: Float, scale: Float = 1f) {
+        val size = dp((26f * scale).roundToInt().coerceIn(18, 52))
+        val textSp = (11f * scale).coerceIn(9f, 16f)
         val marker = TextView(this).apply {
             text = "$index"
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, textSp)
             typeface = Typeface.DEFAULT_BOLD
             background = circleStrokeBg(0xE63B82F6.toInt(), 0xFFFFFFFF.toInt())
         }
@@ -943,18 +960,21 @@ class FloatingOverlayService : Service() {
         fillColor: Int? = null,
         onClick: (View) -> Unit,
     ): ImageButton {
-        val size = dp(32)
+        val size = dp(30)
         return ImageButton(this).apply {
             setImageResource(iconRes)
             imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setPadding(dp(6), dp(6), dp(6), dp(6))
+            setPadding(dp(7), dp(7), dp(7), dp(7))
             background = if (fillColor != null) circleFillBg(fillColor) else circleOutlineBg()
-            layoutParams = LinearLayout.LayoutParams(size, size)
+            layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
             isEnabled = enabled
             alpha = if (enabled) 1f else 0.4f
             isClickable = true
-            elevation = dp(2).toFloat()
+            // Keep elevation low so OEM window clipping doesn't shave the circle.
+            elevation = 0f
             setOnClickListener { if (isEnabled) onClick(this) }
         }
     }
@@ -1004,8 +1024,10 @@ class FloatingOverlayService : Service() {
                     outline.setOval(0, 0, view.width, view.height)
                 }
             }
-            layoutParams = LinearLayout.LayoutParams(size, size)
-            elevation = dp(3).toFloat()
+            layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+            elevation = 0f
             isClickable = true
             setOnClickListener { onClick() }
         }
