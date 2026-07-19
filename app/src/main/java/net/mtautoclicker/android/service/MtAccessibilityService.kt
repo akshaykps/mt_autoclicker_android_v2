@@ -28,6 +28,7 @@ import kotlin.random.Random
 class MtAccessibilityService : AccessibilityService() {
 
     private val gestureMutex = Mutex()
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
 
     @Volatile
     var onWindowsOrFocusChanged: (() -> Unit)? = null
@@ -134,7 +135,7 @@ class MtAccessibilityService : AccessibilityService() {
         y: Float,
         button: MouseButton,
         randomOffsetPx: Int,
-        /** High-CPS path: 1ms stroke + short wait (Single/Multi Target). */
+        /** High-CPS fallback for individual taps. Single Target uses [performTapBatch]. */
         fast: Boolean = false,
     ): Boolean {
         val jitterX = if (randomOffsetPx > 0) Random.nextInt(-randomOffsetPx, randomOffsetPx + 1) else 0
@@ -154,6 +155,58 @@ class MtAccessibilityService : AccessibilityService() {
             MouseButton.RIGHT -> dispatchLongPress(clickX, clickY, 600L)
             MouseButton.MIDDLE -> dispatchTap(clickX, clickY, durationMs = 40L)
         }
+    }
+
+    /**
+     * Dispatch several independent taps as one framework gesture.
+     *
+     * Android cancels an in-progress accessibility gesture when another is dispatched.
+     * Scheduling up to the platform stroke limit in one GestureDescription therefore
+     * avoids the Binder + main-looper + completion-callback round-trip between taps.
+     */
+    suspend fun performTapBatch(
+        points: List<Pair<Float, Float>>,
+        intervalMs: Long,
+        randomOffsetPx: Int,
+    ): Boolean = gestureMutex.withLock {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || points.isEmpty()) {
+            return@withLock false
+        }
+        val safeIntervalMs = intervalMs.coerceAtLeast(2L)
+        val strokeDurationMs = 1L
+        val builder = GestureDescription.Builder()
+        val acceptedPoints = points.take(GestureDescription.getMaxStrokeCount())
+        acceptedPoints.forEachIndexed { index, point ->
+            val jitterX = if (randomOffsetPx > 0) {
+                Random.nextInt(-randomOffsetPx, randomOffsetPx + 1)
+            } else {
+                0
+            }
+            val jitterY = if (randomOffsetPx > 0) {
+                Random.nextInt(-randomOffsetPx, randomOffsetPx + 1)
+            } else {
+                0
+            }
+            val path = Path().apply {
+                moveTo(
+                    (point.first + jitterX).coerceAtLeast(0f),
+                    (point.second + jitterY).coerceAtLeast(0f),
+                )
+            }
+            builder.addStroke(
+                GestureDescription.StrokeDescription(
+                    path,
+                    index * safeIntervalMs,
+                    strokeDurationMs,
+                ),
+            )
+        }
+        val scheduledDurationMs =
+            (acceptedPoints.size - 1) * safeIntervalMs + strokeDurationMs
+        dispatchGestureAwait(
+            builder.build(),
+            timeoutMs = (scheduledDurationMs + 1_000L).coerceAtMost(4_000L),
+        )
     }
 
     fun performGlobalNav(kind: MacroStepKind): Boolean {
@@ -351,29 +404,26 @@ class MtAccessibilityService : AccessibilityService() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
         val result = withTimeoutOrNull(timeoutMs) {
             suspendCancellableCoroutine { cont ->
-                var resumed = false
-                val mainHandler = Handler(Looper.getMainLooper())
+                val resumed = java.util.concurrent.atomic.AtomicBoolean(false)
+                fun resumeOnce(value: Boolean) {
+                    if (resumed.compareAndSet(false, true)) {
+                        cont.resume(value)
+                    }
+                }
                 val callback = object : GestureResultCallback() {
                     override fun onCompleted(gestureDescription: GestureDescription?) {
-                        if (!resumed) {
-                            resumed = true
-                            cont.resume(true)
-                        }
+                        resumeOnce(true)
                     }
 
                     override fun onCancelled(gestureDescription: GestureDescription?) {
-                        if (!resumed) {
-                            resumed = true
-                            cont.resume(false)
-                        }
+                        resumeOnce(false)
                     }
                 }
                 mainHandler.post {
-                    val dispatched = runCatching { dispatchGesture(gesture, callback, null) }.getOrDefault(false)
-                    if (!dispatched && !resumed) {
-                        resumed = true
-                        cont.resume(false)
-                    }
+                    val dispatched = runCatching {
+                        dispatchGesture(gesture, callback, mainHandler)
+                    }.getOrDefault(false)
+                    if (!dispatched) resumeOnce(false)
                 }
             }
         }

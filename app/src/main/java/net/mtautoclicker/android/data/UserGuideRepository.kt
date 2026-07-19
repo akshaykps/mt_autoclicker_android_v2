@@ -64,6 +64,7 @@ class UserGuideRepository(private val context: Context) {
         encodeDefaults = true
     }
     private val cacheFile = File(context.filesDir, "user_guide_cache.json")
+    private val cacheMetaFile = File(context.filesDir, "user_guide_cache_meta.txt")
 
     suspend fun loadLocal(): UserGuideDocument = withContext(Dispatchers.IO) {
         val bundled = parseBundledGuide()
@@ -84,7 +85,10 @@ class UserGuideRepository(private val context: Context) {
                 .sortedBy { it.order },
         )
 
-    suspend fun refresh(): UserGuideDocument? = withContext(Dispatchers.IO) {
+    suspend fun refresh(force: Boolean = false): UserGuideDocument? = withContext(Dispatchers.IO) {
+        if (!force && isCacheFresh()) {
+            return@withContext readCache()?.let { sanitizeDocument(it.copy(source = "cached")) }
+        }
         if (!hasValidatedInternet()) return@withContext null
         val response = getJson(
             "https://mtautoclicker.net/api/android/user-guide/" +
@@ -100,10 +104,17 @@ class UserGuideRepository(private val context: Context) {
         if (normalized.sections.isEmpty()) return@withContext null
         runCatching {
             cacheFile.writeText(json.encodeToString(normalized))
+            cacheMetaFile.writeText(System.currentTimeMillis().toString())
         }.onFailure {
             Log.w(TAG, "Could not cache remote user guide", it)
         }
         normalized
+    }
+
+    private fun isCacheFresh(): Boolean {
+        if (!cacheFile.exists() || !cacheMetaFile.exists()) return false
+        val cachedAt = cacheMetaFile.readText().trim().toLongOrNull() ?: return false
+        return System.currentTimeMillis() - cachedAt < CACHE_TTL_MS
     }
 
     private fun readCache(): UserGuideDocument? = runCatching {
@@ -272,5 +283,6 @@ class UserGuideRepository(private val context: Context) {
 
     companion object {
         private const val TAG = "MtUserGuide"
+        private const val CACHE_TTL_MS = 6 * 60 * 60 * 1000L // 6 hours
     }
 }

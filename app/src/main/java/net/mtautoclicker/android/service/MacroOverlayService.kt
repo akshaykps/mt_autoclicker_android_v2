@@ -1025,16 +1025,7 @@ class MacroOverlayService : Service() {
 
     private fun startRecordingForeground(notification: Notification) {
         runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(
-                    RECORD_NOTIFICATION_ID,
-                    notification,
-                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                startForeground(RECORD_NOTIFICATION_ID, notification)
-            }
+            startSpecialUseForeground(RECORD_NOTIFICATION_ID, notification)
             recordingFgStarted = true
         }.onFailure {
             // Fallback if FGS type is rejected — still show the chip.

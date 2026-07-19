@@ -56,6 +56,7 @@ import net.mtautoclicker.android.data.StopType
 import net.mtautoclicker.android.data.TargetMode
 import net.mtautoclicker.android.engine.AutomationHub
 import net.mtautoclicker.android.engine.MIN_CLICK_INTERVAL_MS
+import net.mtautoclicker.android.engine.MIN_SINGLE_TARGET_INTERVAL_MS
 import net.mtautoclicker.android.ui.screens.AppRoute
 import kotlin.math.roundToInt
 
@@ -122,18 +123,50 @@ class FloatingOverlayService : Service() {
             }
         }
         scope.launch {
+            var lastRunState: AutomationRunState? = null
+            var lastTargetCount = -1
+            var lastMarkerSignature: String? = null
             AutomationHub.snapshot.collectLatest { snap ->
-                when (snap.runState) {
-                    AutomationRunState.RUNNING, AutomationRunState.PAUSED -> showRunningPill(snap.runState)
-                    else -> {
-                        if (floatBar == null || runningStrip != null) showArmedPill()
-                        else refreshArmedButtons(snap.targets.size)
+                // Progress ticks (cycleCount/elapsedMs) must not rebuild overlays —
+                // that competes with Accessibility gesture dispatch on the main thread.
+                if (snap.runState != lastRunState) {
+                    lastRunState = snap.runState
+                    when (snap.runState) {
+                        AutomationRunState.RUNNING, AutomationRunState.PAUSED ->
+                            showRunningPill(snap.runState)
+                        else -> {
+                            if (floatBar == null || runningStrip != null) showArmedPill()
+                            else refreshArmedButtons(snap.targets.size)
+                        }
                     }
+                } else if (
+                    snap.runState != AutomationRunState.RUNNING &&
+                    snap.runState != AutomationRunState.PAUSED &&
+                    snap.targets.size != lastTargetCount
+                ) {
+                    refreshArmedButtons(snap.targets.size)
                 }
-                refreshMarkers(if (markersVisible) snap.targets else emptyList())
+                lastTargetCount = snap.targets.size
+
+                val markerTargets = if (markersVisible) snap.targets else emptyList()
+                val markerSignature = markerSignature(markerTargets)
+                if (markerSignature != lastMarkerSignature) {
+                    lastMarkerSignature = markerSignature
+                    refreshMarkers(markerTargets)
+                }
             }
         }
     }
+
+    private fun markerSignature(targets: List<ClickTarget>): String =
+        targets.joinToString(separator = "|") { target ->
+            listOf(
+                target.x,
+                target.y,
+                target.zoneWidth ?: -1f,
+                target.zoneHeight ?: -1f,
+            ).joinToString(",")
+        }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_DISMISS) {
@@ -547,7 +580,12 @@ class FloatingOverlayService : Service() {
             }
             var value = intervalInput.text.toString().toDoubleOrNull() ?: interval.value
             if (unit == IntervalUnit.MS) {
-                value = value.coerceAtLeast(MIN_CLICK_INTERVAL_MS.toDouble())
+                val minimum = if (plan is AutomationPlan.Single) {
+                    MIN_SINGLE_TARGET_INTERVAL_MS
+                } else {
+                    MIN_CLICK_INTERVAL_MS
+                }
+                value = value.coerceAtLeast(minimum.toDouble())
             }
             val newInterval = IntervalConfig(
                 value = value,

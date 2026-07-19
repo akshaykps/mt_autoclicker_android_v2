@@ -4,14 +4,29 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+val uploadStoreFile = providers.gradleProperty("MT_UPLOAD_STORE_FILE").orNull
+    ?: System.getenv("MT_UPLOAD_STORE_FILE")
+val uploadStorePassword = providers.gradleProperty("MT_UPLOAD_STORE_PASSWORD").orNull
+    ?: System.getenv("MT_UPLOAD_STORE_PASSWORD")
+val uploadKeyAlias = providers.gradleProperty("MT_UPLOAD_KEY_ALIAS").orNull
+    ?: System.getenv("MT_UPLOAD_KEY_ALIAS")
+val uploadKeyPassword = providers.gradleProperty("MT_UPLOAD_KEY_PASSWORD").orNull
+    ?: System.getenv("MT_UPLOAD_KEY_PASSWORD")
+val hasUploadSigning = listOf(
+    uploadStoreFile,
+    uploadStorePassword,
+    uploadKeyAlias,
+    uploadKeyPassword,
+).all { !it.isNullOrBlank() }
+
 android {
     namespace = "net.mtautoclicker.android"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "net.mtautoclicker.android"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
 
@@ -21,9 +36,27 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasUploadSigning) {
+            create("release") {
+                storeFile = file(requireNotNull(uploadStoreFile))
+                storePassword = uploadStorePassword
+                keyAlias = uploadKeyAlias
+                keyPassword = uploadKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
+            isDebuggable = false
             isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.findByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

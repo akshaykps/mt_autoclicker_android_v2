@@ -8,8 +8,15 @@ import net.mtautoclicker.android.data.StopCondition
 import net.mtautoclicker.android.data.StopType
 import kotlin.random.Random
 
-/** Lowest interval we advertise for Accessibility gesture clicks. */
+/** Lowest interval used by multi-target and other general click paths. */
 const val MIN_CLICK_INTERVAL_MS = 10L
+
+/**
+ * Single Target uses batched GestureDescription strokes, avoiding one Binder/callback
+ * round-trip per tap. Five milliseconds is the API scheduling floor we expose; actual
+ * delivery remains device/display/target-app dependent.
+ */
+const val MIN_SINGLE_TARGET_INTERVAL_MS = 5L
 
 fun intervalToMs(interval: IntervalConfig): Long {
     val value = interval.value
@@ -20,14 +27,17 @@ fun intervalToMs(interval: IntervalConfig): Long {
     }
 }
 
-fun resolveIntervalMs(interval: IntervalConfig): Long {
+fun resolveIntervalMs(
+    interval: IntervalConfig,
+    minimumMs: Long = MIN_CLICK_INTERVAL_MS,
+): Long {
     if (interval.variable && interval.minValue != null && interval.maxValue != null) {
         val min = intervalToMs(interval.copy(value = interval.minValue))
         val max = intervalToMs(interval.copy(value = interval.maxValue))
         return (min + Random.nextLong((max - min).coerceAtLeast(0L) + 1))
-            .coerceAtLeast(MIN_CLICK_INTERVAL_MS)
+            .coerceAtLeast(minimumMs)
     }
-    return intervalToMs(interval).coerceAtLeast(MIN_CLICK_INTERVAL_MS)
+    return intervalToMs(interval).coerceAtLeast(minimumMs)
 }
 
 /**

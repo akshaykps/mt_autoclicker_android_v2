@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -731,21 +732,21 @@ fun HeroHeader(
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(4.dp)
-                                .size(if (compact) 10.dp else 16.dp)
+                                .padding(2.dp)
+                                .defaultMinSize(minWidth = 16.dp, minHeight = 16.dp)
                                 .clip(CircleShape)
                                 .background(Color(0xFFDC2626))
-                                .border(1.5.dp, MtCard, CircleShape),
+                                .border(1.5.dp, MtCard, CircleShape)
+                                .padding(horizontal = 4.dp, vertical = 1.dp),
                             contentAlignment = Alignment.Center,
                         ) {
-                            if (!compact) {
-                                Text(
-                                    if (notificationCount > 9) "9+" else notificationCount.toString(),
-                                    color = Color.White,
-                                    fontSize = 7.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
+                            Text(
+                                if (notificationCount > 99) "99+" else notificationCount.toString(),
+                                color = Color.White,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                lineHeight = 10.sp,
+                            )
                         }
                     }
                 }

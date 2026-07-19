@@ -81,7 +81,8 @@ class MacroPlaybackService : Service() {
             // Overlay watches MacroHub and hides itself when isPlaying.
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification(0, steps.size, paused = false))
+        val notification = buildNotification(0, steps.size, paused = false)
+        startSpecialUseForeground(NOTIFICATION_ID, notification)
 
         notifyJob?.cancel()
         notifyJob = scope.launch {

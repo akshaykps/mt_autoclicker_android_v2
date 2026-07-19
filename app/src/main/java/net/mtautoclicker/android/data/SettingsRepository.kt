@@ -59,6 +59,7 @@ class SettingsRepository(private val context: Context) {
         const val WEBSITE_LABEL = "MTAutoclicker.com"
         const val COMMUNITY_URL = "https://community.mtautoclicker.net"
         const val COMMUNITY_LABEL = "community.mtautoclicker.net"
+        const val PRIVACY_POLICY_URL = "https://mtautoclicker.net/privacy-policy/"
         const val WEBTRETA_URL = "https://www.webtreta.com/"
         const val WEBTRETA_LABEL = "WebTreta"
         const val PLAY_STORE_URL =
@@ -73,7 +74,8 @@ class SettingsRepository(private val context: Context) {
     }
 
     val analyticsEnabled = context.settingsDataStore.data.map { prefs ->
-        prefs[analyticsKey] ?: true
+        // Privacy-first default for Google Play: analytics requires explicit opt-in.
+        prefs[analyticsKey] ?: false
     }
 
     val notificationSoundMuted = context.settingsDataStore.data.map { prefs ->
@@ -324,6 +326,30 @@ class SettingsRepository(private val context: Context) {
         java.util.TimeZone.getDefault().id.ifBlank { "UTC" }
 
     /** Structured device fingerprint for tracking / feedback APIs. */
+    fun installationSourceLabel(): String {
+        return runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val info = context.packageManager.getInstallSourceInfo(context.packageName)
+                info.installingPackageName
+                    ?: info.initiatingPackageName
+                    ?: info.originatingPackageName
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.getInstallerPackageName(context.packageName)
+            }
+        }.getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { packageName ->
+                when {
+                    packageName.contains("com.android.vending") -> "play_store"
+                    packageName.contains("com.amazon") -> "amazon"
+                    packageName.contains("com.huawei") -> "huawei"
+                    else -> packageName
+                }
+            }
+            ?: "sideload"
+    }
+
     fun deviceProfileMap(): Map<String, String> = buildMap {
         put("platform", osPlatformLabel())
         put("manufacturer", manufacturerLabel())
@@ -333,6 +359,7 @@ class SettingsRepository(private val context: Context) {
         put("android_sdk", androidSdkInt().toString())
         put("language", languageLabel())
         put("timezone", timezoneLabel())
+        put("installation_source", installationSourceLabel())
         put("is_chromeos", isChromeOsDevice().toString())
     }
 
@@ -340,7 +367,7 @@ class SettingsRepository(private val context: Context) {
         val prefs = context.settingsDataStore.data.first()
         return SettingsBackup(
             theme = prefs[themeKey] ?: "system",
-            analyticsEnabled = prefs[analyticsKey] ?: true,
+            analyticsEnabled = prefs[analyticsKey] ?: false,
             notificationSoundMuted = prefs[notificationSoundMutedKey] ?: false,
             hapticsEnabled = prefs[hapticsEnabledKey] ?: true,
             targetMarkerScalePercent = (prefs[targetMarkerScaleKey] ?: DEFAULT_MARKER_SCALE)

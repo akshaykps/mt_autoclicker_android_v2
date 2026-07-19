@@ -123,6 +123,12 @@ class AndroidCmsRepository(
     private val reviewLastShownKey = longPreferencesKey("review_last_shown_at")
     private val reviewSubmittedKey = booleanPreferencesKey("review_submitted")
     private val npsSubmittedKey = booleanPreferencesKey("nps_submitted")
+    private val feedbackLastSentAtKey = longPreferencesKey("feedback_last_sent_at")
+
+    @Volatile
+    private var inboxCacheAtMs: Long = 0L
+    @Volatile
+    private var inboxCache: AndroidNotificationsResponse? = null
 
     val onboardingDone = context.androidCmsStore.data.map { it[onboardingDoneKey] ?: false }
     val permissionsTourDone = context.androidCmsStore.data.map { it[permissionsTourDoneKey] ?: false }
@@ -220,22 +226,36 @@ class AndroidCmsRepository(
     }
 
     /** Persistent notification inbox: broadcasts plus feedback replies for this device. */
-    suspend fun fetchInboxNotifications(): AndroidNotificationsResponse = withContext(Dispatchers.IO) {
-        val deviceId = settings.getOrCreateDeviceId()
-        val remote = getJson(
-            "$baseUrl/notifications/?device_id=$deviceId&app_version=$appVersion",
-        ) ?: return@withContext AndroidNotificationsResponse()
-        runCatching {
-            json.decodeFromString<AndroidNotificationsResponse>(remote)
-        }.onFailure {
-            Log.w(TAG, "Could not decode notification inbox", it)
-        }.getOrDefault(AndroidNotificationsResponse())
-    }
+    suspend fun fetchInboxNotifications(force: Boolean = false): AndroidNotificationsResponse =
+        withContext(Dispatchers.IO) {
+            val cached = inboxCache
+            val now = System.currentTimeMillis()
+            if (!force && cached != null && now - inboxCacheAtMs < INBOX_CACHE_TTL_MS) {
+                return@withContext cached
+            }
+            val deviceId = settings.getOrCreateDeviceId()
+            val remote = getJson(
+                "$baseUrl/notifications/?device_id=$deviceId&app_version=$appVersion",
+            ) ?: return@withContext cached ?: AndroidNotificationsResponse()
+            val parsed = runCatching {
+                json.decodeFromString<AndroidNotificationsResponse>(remote)
+            }.onFailure {
+                Log.w(TAG, "Could not decode notification inbox", it)
+            }.getOrDefault(cached ?: AndroidNotificationsResponse())
+            if (parsed.success) {
+                inboxCache = parsed
+                inboxCacheAtMs = now
+            }
+            parsed
+        }
 
     suspend fun markInboxNotification(
         notificationId: Int,
         action: String = "read",
     ): Boolean = withContext(Dispatchers.IO) {
+        // Invalidate short inbox cache so next open reflects read/dismiss.
+        inboxCache = null
+        inboxCacheAtMs = 0L
         val deviceId = settings.getOrCreateDeviceId()
         val body = buildJsonObject {
             put("device_id", deviceId)
@@ -350,6 +370,12 @@ class AndroidCmsRepository(
         rating: Int? = null,
         metadata: Map<String, String> = emptyMap(),
     ): Boolean = withContext(Dispatchers.IO) {
+        val lastSent = context.androidCmsStore.data.first()[feedbackLastSentAtKey] ?: 0L
+        val elapsed = System.currentTimeMillis() - lastSent
+        if (lastSent > 0L && elapsed < FEEDBACK_COOLDOWN_MS) {
+            Log.i(TAG, "Feedback cooldown active (${FEEDBACK_COOLDOWN_MS - elapsed}ms left)")
+            return@withContext false
+        }
         val deviceId = settings.getOrCreateDeviceId()
         val profile = settings.deviceProfileMap()
         val clientEventId = UUID.randomUUID().toString()
@@ -359,7 +385,7 @@ class AndroidCmsRepository(
             put("client_event_id", clientEventId)
             put("occurred_at", occurredAt)
             put("feedback_type", feedbackType)
-            put("message", message)
+            put("message", message.take(2000))
             if (rating != null) put("rating", rating)
             put("app_version", appVersion)
             put("os_version", settings.osVersionLabel())
@@ -376,12 +402,16 @@ class AndroidCmsRepository(
                 metadata.forEach { (k, v) -> put(k, v) }
             })
         }
-        enqueueJson(
+        val queued = enqueueJson(
             "$baseUrl/feedback/",
             body.toString(),
             TelemetryPrivacyClass.FUNCTIONAL,
             clientEventId,
         )
+        if (queued) {
+            context.androidCmsStore.edit { it[feedbackLastSentAtKey] = System.currentTimeMillis() }
+        }
+        queued
     }
 
     suspend fun reportTourAction(kind: String, action: String, stepId: Int? = null) =
@@ -523,6 +553,8 @@ class AndroidCmsRepository(
 
     companion object {
         private const val TAG = "MtAndroidCms"
+        private const val FEEDBACK_COOLDOWN_MS = 60_000L
+        private const val INBOX_CACHE_TTL_MS = 30_000L
     }
 }
 
@@ -559,7 +591,7 @@ object OfflineAndroidDefaults {
                 AndroidTourStepDto(
                     sort_order = 2,
                     title = "You are ready",
-                    body = "Return to MT Auto Clicker when both permissions are enabled.",
+                    body = "Return to MT Auto Clicker and start Single Target or Multi Target when both permissions are on.",
                     action_key = "finish",
                     cta_text = "Done",
                 ),

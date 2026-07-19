@@ -8,7 +8,7 @@ import java.time.Instant
 @Serializable
 data class SettingsBackup(
     val theme: String = "system",
-    val analyticsEnabled: Boolean = true,
+    val analyticsEnabled: Boolean = false,
     val notificationSoundMuted: Boolean = false,
     val hapticsEnabled: Boolean = true,
     val targetMarkerScalePercent: Int = SettingsRepository.DEFAULT_MARKER_SCALE,

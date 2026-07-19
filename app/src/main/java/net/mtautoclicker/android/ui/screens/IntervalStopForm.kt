@@ -52,19 +52,26 @@ fun IntervalStopForm(
     stop: StopCondition,
     onIntervalChange: (IntervalConfig) -> Unit,
     onStopChange: (StopCondition) -> Unit,
+    minimumIntervalMs: Long = MIN_CLICK_INTERVAL_MS,
+    timingHint: String? = null,
 ) {
     SettingsCard(title = "Timing") {
-        val intervalMin = if (interval.unit == IntervalUnit.MS) MIN_CLICK_INTERVAL_MS.toLong() else 1L
+        val intervalMin = if (interval.unit == IntervalUnit.MS) minimumIntervalMs else 1L
         MtNumberField(
             value = interval.value,
             onCommit = { n ->
                 onIntervalChange(interval.copy(value = n.toDouble().coerceAtLeast(intervalMin.toDouble())))
             },
-            label = "Interval (min ${MIN_CLICK_INTERVAL_MS} ms)",
+            label = if (interval.unit == IntervalUnit.MS) {
+                "Interval (min $minimumIntervalMs ms)"
+            } else {
+                "Interval"
+            },
             min = intervalMin,
         )
         Text(
-            "Fastest reliable rate on Android is about ${MIN_CLICK_INTERVAL_MS} ms (~${1000 / MIN_CLICK_INTERVAL_MS} CPS). Device may run slightly slower under load.",
+            timingHint ?: "Fastest reliable rate on Android is about $minimumIntervalMs ms " +
+                "(~${1000 / minimumIntervalMs} CPS). Device may run slightly slower under load.",
             color = MtMid,
         )
         UnitDropdown(interval.unit) { onIntervalChange(interval.copy(unit = it)) }

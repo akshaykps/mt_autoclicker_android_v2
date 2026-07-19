@@ -92,6 +92,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import net.mtautoclicker.android.BuildConfig
 import net.mtautoclicker.android.MtApplication
 import net.mtautoclicker.android.data.AppBackup
 import net.mtautoclicker.android.data.PermissionHelper
@@ -124,6 +125,8 @@ fun SettingsScreen(
     val clipboard = LocalClipboardManager.current
     val soundMuted by MtApplication.instance.settingsRepository.notificationSoundMuted.collectAsState(initial = false)
     val hapticsEnabled by MtApplication.instance.settingsRepository.hapticsEnabled.collectAsState(initial = true)
+    val analyticsEnabled by MtApplication.instance.settingsRepository.analyticsEnabled
+        .collectAsState(initial = false)
     val themePreference by MtApplication.instance.settingsRepository.themePreference
         .collectAsState(initial = ThemePreference.SYSTEM)
     val markerScale by MtApplication.instance.settingsRepository.targetMarkerScalePercent
@@ -133,6 +136,7 @@ fun SettingsScreen(
     var deviceId by remember { mutableStateOf("…") }
     var storageLabel by remember { mutableStateOf("Loading…") }
     var confirmAction by remember { mutableStateOf<String?>(null) }
+    var showAccessibilityDisclosure by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<StatusBanner?>(null) }
     val overlayOk = PermissionHelper.canDrawOverlays(context)
     val accessibilityOk = PermissionHelper.isAccessibilityEnabled(context)
@@ -299,6 +303,18 @@ fun SettingsScreen(
                     scope.launch { MtApplication.instance.settingsRepository.setHapticsEnabled(it) }
                 },
             )
+            GroupDivider()
+            CompactToggle(
+                icon = Icons.Rounded.BarChart,
+                iconTint = Color(0xFF0EA5E9),
+                title = "Optional usage analytics",
+                checked = analyticsEnabled,
+                onCheckedChange = {
+                    scope.launch {
+                        MtApplication.instance.settingsRepository.setAnalyticsEnabled(it)
+                    }
+                },
+            )
         }
 
         SettingsGroup(label = "PERMISSIONS", accent = Color(0xFF10B981)) {
@@ -324,7 +340,13 @@ fun SettingsScreen(
                 title = "Accessibility",
                 trailing = if (accessibilityOk) "On" else "Off",
                 trailingColor = if (accessibilityOk) MtEmerald else Color(0xFFD97706),
-                onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+                onClick = {
+                    if (accessibilityOk) {
+                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    } else {
+                        showAccessibilityDisclosure = true
+                    }
+                },
             )
             GroupDivider()
             CompactLinkRow(
@@ -393,7 +415,7 @@ fun SettingsScreen(
                 icon = Icons.Rounded.Info,
                 iconTint = Color(0xFF6366F1),
                 title = "Version",
-                trailing = "1.0.0",
+                trailing = BuildConfig.VERSION_NAME,
                 showChevron = false,
                 onClick = null,
             )
@@ -404,6 +426,14 @@ fun SettingsScreen(
                 title = "Website",
                 trailing = SettingsRepository.WEBSITE_LABEL,
                 onClick = { openUrl(context, SettingsRepository.WEBSITE_URL) },
+            )
+            GroupDivider()
+            CompactLinkRow(
+                icon = Icons.Rounded.Security,
+                iconTint = Color(0xFF059669),
+                title = "Privacy policy",
+                trailing = null,
+                onClick = { openUrl(context, SettingsRepository.PRIVACY_POLICY_URL) },
             )
             GroupDivider()
             CompactLinkRow(
@@ -475,6 +505,16 @@ fun SettingsScreen(
                 }
             },
             containerColor = MtCard,
+        )
+    }
+
+    if (showAccessibilityDisclosure) {
+        AccessibilityDisclosureDialog(
+            onDecline = { showAccessibilityDisclosure = false },
+            onContinue = {
+                showAccessibilityDisclosure = false
+                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            },
         )
     }
 }
@@ -934,6 +974,7 @@ fun PermissionsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var refreshTick by remember { mutableIntStateOf(0) }
+    var showAccessibilityDisclosure by remember { mutableStateOf(false) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -1055,7 +1096,11 @@ fun PermissionsScreen(onBack: () -> Unit) {
             granted = accessibilityOk,
             actionLabel = if (accessibilityOk) "Manage" else "Open Accessibility",
             onAction = {
-                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                if (accessibilityOk) {
+                    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                } else {
+                    showAccessibilityDisclosure = true
+                }
             },
         )
 
@@ -1085,6 +1130,16 @@ fun PermissionsScreen(onBack: () -> Unit) {
                 )
             }
         }
+    }
+
+    if (showAccessibilityDisclosure) {
+        AccessibilityDisclosureDialog(
+            onDecline = { showAccessibilityDisclosure = false },
+            onContinue = {
+                showAccessibilityDisclosure = false
+                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            },
+        )
     }
 }
 

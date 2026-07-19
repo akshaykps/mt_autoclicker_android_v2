@@ -30,6 +30,7 @@ import net.mtautoclicker.android.data.PresetRepository
 import net.mtautoclicker.android.data.SingleTargetConfig
 import net.mtautoclicker.android.engine.AutomationLauncher
 import net.mtautoclicker.android.engine.LaunchResult
+import net.mtautoclicker.android.engine.MIN_SINGLE_TARGET_INTERVAL_MS
 import net.mtautoclicker.android.engine.formatInterval
 import net.mtautoclicker.android.engine.formatStopSummary
 import net.mtautoclicker.android.ui.components.AccentBlue
@@ -125,6 +126,9 @@ fun SingleTargetScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
                 stop = config.stop,
                 onIntervalChange = { config = config.copy(interval = it) },
                 onStopChange = { config = config.copy(stop = it) },
+                minimumIntervalMs = MIN_SINGLE_TARGET_INTERVAL_MS,
+                timingHint = "High-speed mode batches taps through Android Accessibility: " +
+                    "5 ms targets up to 200 CPS; 10 ms is more reliable across devices and apps.",
             )
 
             Spacer(modifier = Modifier.height(4.dp))

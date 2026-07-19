@@ -2,11 +2,15 @@
 <resources>
     <string name="app_name">MT Auto Clicker</string>
     <string name="recording_status_label">Recording…</string>
-    <string name="accessibility_service_description">MT Auto Clicker uses Accessibility to perform taps, gestures, and system navigation (Back / Home / Recents) for macros you record. It only acts where you place targets or where your macro steps say — it does not read passwords or personal data.</string>
+    <string name="accessibility_service_description">MT Auto Clicker uses Accessibility to perform user-configured taps, gestures, and macro navigation. During macro recording it can inspect the active window and focused text field to capture actions you request. Accessibility content is processed on your device and is not sold or shared.</string>
     <string name="overlay_permission_title">Display over other apps</string>
     <string name="overlay_permission_body">Allow MT Auto Clicker to show the floating control bar while you automate other apps.</string>
     <string name="accessibility_permission_title">Accessibility service</string>
-    <string name="accessibility_permission_body">Enable MT Auto Clicker under Accessibility so it can perform clicks at your chosen screen positions.</string>
+    <string name="accessibility_permission_body">Enable MT Auto Clicker under Accessibility so it can perform actions you configure.</string>
+    <string name="accessibility_disclosure_title">Before enabling Accessibility</string>
+    <string name="accessibility_disclosure_body">MT Auto Clicker uses Android Accessibility to perform taps, swipes, and Back/Home/Recents actions that you explicitly configure. During macro recording it can inspect the active window and focused text field to capture the actions you request.\n\nAccessibility content is processed on your device. It is not sold, shared, or used for advertising. The service does not autonomously make decisions, and automation stops when you press Stop.\n\nYou can decline now and enable the service later from Permissions.</string>
+    <string name="accessibility_disclosure_accept">I understand — continue</string>
+    <string name="accessibility_disclosure_decline">Not now</string>
     <string name="notification_channel_automation">Automation</string>
     <string name="notification_running">MT Auto Clicker is running</string>
     <string name="notification_paused">MT Auto Clicker paused</string>

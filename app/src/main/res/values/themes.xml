@@ -5,7 +5,8 @@
     <color name="mt_border">#FF1E2D5A</color>
     <color name="mt_blue">#FF3B82F6</color>
     <color name="mt_purple">#FF8B5CF6</color>
-    <color name="mt_splash_bg">#FF060B27</color>
+    <!-- Cold-start default follows dark branding; night qualifier overrides when system is dark. -->
+    <color name="mt_splash_bg">#FF05050C</color>
 
     <!-- Cold-start theme: shown until Compose splash takes over. -->
     <style name="Theme.MtAutoClicker.Splash" parent="Theme.SplashScreen">

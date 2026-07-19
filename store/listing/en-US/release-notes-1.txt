@@ -1,0 +1,8 @@
+Initial Android release.
+
+• Single and multi-target auto clicking
+• Macro recording and playback
+• Full-page screenshots and auto refresh
+• Floating controls, presets and recent runs
+• Searchable offline user guide
+• Optional analytics disabled by default

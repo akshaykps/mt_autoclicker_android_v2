@@ -250,7 +250,9 @@ class TelemetryUploadWorker(
         connection.disconnect()
         when {
             code in 200..299 -> UploadResult.Success
-            code == 408 || code == 425 || code == 429 || code >= 500 ->
+            // Rate limits should not be retried — that would amplify spam load.
+            code == 429 -> UploadResult.PermanentFailure("HTTP 429")
+            code == 408 || code == 425 || code >= 500 ->
                 UploadResult.Retry("HTTP $code")
             else -> UploadResult.PermanentFailure("HTTP $code")
         }

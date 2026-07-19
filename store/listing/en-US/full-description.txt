@@ -1,0 +1,33 @@
+MT Auto Clicker helps you repeat taps and gestures that you configure on Android phones, tablets and supported Chromebooks.
+
+AUTOMATION TOOLS
+
+• Single Target — repeatedly tap one point or selected area
+• Multi Target — run numbered targets in sequence
+• Macro Recorder — record and replay taps, holds, swipes, text actions and supported navigation
+• Full Page Screenshot — automatically scroll and stitch long captures
+• Auto Refresh — repeat a pull-to-refresh gesture at your chosen interval
+
+CONTROL YOUR RUN
+
+Use the floating control bar to place targets, start, pause or stop without returning to the app. Choose the interval, optional start delay, random target offset and stopping condition. Save useful configurations as presets and review recent runs.
+
+OFFLINE-FIRST HELP
+
+The complete user guide is available offline inside the app. Search chapters for setup, permissions, feature instructions, troubleshooting, privacy and safety guidance.
+
+PRIVACY AND CONTROL
+
+No account is required. Optional usage analytics are disabled by default and can be changed in Settings. Accessibility content used for automation and macro recording is processed on your device and is not sold or shared.
+
+ACCESSIBILITY SERVICE
+
+MT Auto Clicker uses Android Accessibility only after you review an in-app disclosure and enable the service yourself. It performs taps, swipes and supported navigation actions that you explicitly configure. During macro recording it can inspect the active window and focused text field to capture actions you request. It does not autonomously initiate or decide actions.
+
+DISPLAY OVER OTHER APPS
+
+Overlay access is used to display the floating controls and target markers while another app is visible.
+
+IMPORTANT
+
+Only automate apps and actions you are allowed to automate. Do not use automation to bypass security, create unwanted traffic or violate another app's rules. Always test with a short run first.

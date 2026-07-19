@@ -99,9 +99,9 @@ fun UserGuideScreen(
     val repository = MtApplication.instance.userGuideRepository
     val scope = rememberCoroutineScope()
 
-    suspend fun refreshGuide() {
+    suspend fun refreshGuide(force: Boolean = false) {
         refreshing = true
-        val remote = repository.refresh()
+        val remote = repository.refresh(force = force)
         if (remote != null) guide = remote
         refreshedOnce = true
         refreshing = false
@@ -109,7 +109,7 @@ fun UserGuideScreen(
 
     LaunchedEffect(Unit) {
         guide = repository.loadLocal()
-        refreshGuide()
+        refreshGuide(force = false)
     }
 
     val document = guide
@@ -157,7 +157,7 @@ fun UserGuideScreen(
             refreshing = refreshing,
             refreshedOnce = refreshedOnce,
             onRefresh = {
-                scope.launch { refreshGuide() }
+                scope.launch { refreshGuide(force = true) }
             },
         )
 

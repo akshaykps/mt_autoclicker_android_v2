@@ -139,7 +139,7 @@ class TrackingService(
             os_platform = settings.osPlatformLabel(),
             os_version = settings.osVersionLabel(),
             app_variant = "full",
-            installation_source = "play_store",
+            installation_source = settings.installationSourceLabel(),
             timezone = settings.timezoneLabel(),
             language = settings.languageLabel(),
             manufacturer = settings.manufacturerLabel(),

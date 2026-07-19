@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.rounded.AccessibilityNew
 import androidx.compose.material.icons.rounded.AdsClick
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FiberManualRecord
@@ -84,16 +86,20 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import net.mtautoclicker.android.MtApplication
+import net.mtautoclicker.android.R
 import net.mtautoclicker.android.data.AndroidOverlayDto
 import net.mtautoclicker.android.data.AndroidTourDto
 import net.mtautoclicker.android.data.AndroidTourStepDto
@@ -569,8 +575,8 @@ fun FeedbackScreen(onBack: () -> Unit) {
                     if (ok) {
                         sent = true
                     } else {
-                        errorBanner = "Could not send — check connection and try again"
-                        Toast.makeText(context, "Send failed", Toast.LENGTH_SHORT).show()
+                        errorBanner = "Please wait a minute before sending again"
+                        Toast.makeText(context, "Cooldown active — try again shortly", Toast.LENGTH_SHORT).show()
                     }
                 }
             },
@@ -945,12 +951,19 @@ fun ReviewPromptHost(idleOnHome: Boolean) {
 
 /* ─── Interactive tour ───────────────────────────────────────────────────── */
 
+private val TourGuideBlue = Color(0xFF2F6BFF)
+private val TourTitleDark = Color(0xFF111827)
+private val TourBodyGray = Color(0xFF6B7280)
+private val TourTrackGray = Color(0xFFD7E0F2)
+private val TourNavBorder = Color(0xFFD9E2F5)
+private val TourNavFill = Color(0xFFF7FAFF)
+
 private fun tourStepIcon(step: AndroidTourStepDto, kind: String, index: Int): ImageVector {
     return when (step.action_key) {
         "open_overlay_settings" -> Icons.Rounded.Layers
         "open_accessibility_settings" -> Icons.Rounded.AccessibilityNew
         "open_permissions" -> Icons.Rounded.Security
-        "finish" -> Icons.Rounded.PlayArrow
+        "finish" -> Icons.Rounded.Check
         else -> when {
             kind == "onboarding" && index == 0 -> Icons.Rounded.WavingHand
             kind == "onboarding" && index == 1 -> Icons.Rounded.Security
@@ -959,10 +972,32 @@ private fun tourStepIcon(step: AndroidTourStepDto, kind: String, index: Int): Im
     }
 }
 
-private fun tourStepAccent(index: Int): Color = when (index % 3) {
-    0 -> Color(0xFF2563EB) // brand blue
-    1 -> Color(0xFF0EA5E9) // sky
-    else -> Color(0xFF10B981) // emerald
+private fun tourStepAccent(step: AndroidTourStepDto, index: Int, isLast: Boolean): Color {
+    if (isLast || step.action_key == "finish") return Color(0xFF10B981)
+    return when (step.action_key) {
+        "open_overlay_settings" -> TourGuideBlue
+        "open_accessibility_settings" -> Color(0xFF38BDF8)
+        else -> when (index % 3) {
+            0 -> TourGuideBlue
+            1 -> Color(0xFF38BDF8)
+            else -> Color(0xFF10B981)
+        }
+    }
+}
+
+private fun tourIllustrationRes(step: AndroidTourStepDto, kind: String, index: Int): Int? {
+    return when (step.action_key) {
+        "open_overlay_settings" -> R.drawable.tour_overlay
+        "open_accessibility_settings" -> R.drawable.tour_accessibility
+        "finish" -> R.drawable.tour_ready
+        else -> when {
+            kind == "permissions" && index == 0 -> R.drawable.tour_overlay
+            kind == "permissions" && index == 1 -> R.drawable.tour_accessibility
+            kind == "permissions" && index >= 2 -> R.drawable.tour_ready
+            kind == "onboarding" && index >= 2 -> R.drawable.tour_ready
+            else -> null
+        }
+    }
 }
 
 @Composable
@@ -976,8 +1011,8 @@ fun AppTourDialog(
     var index by remember { mutableIntStateOf(0) }
     var dragAccum by remember { mutableFloatStateOf(0f) }
     val step = tour.steps.getOrNull(index) ?: return
-    val accent = tourStepAccent(index)
     val isLast = index >= tour.steps.lastIndex
+    val accent = tourStepAccent(step, index, isLast)
 
     fun markCompleteAndClose(action: String) {
         scope.launch {
@@ -986,7 +1021,6 @@ fun AppTourDialog(
             when (tour.kind) {
                 "onboarding" -> {
                     cms.setOnboardingDone(true)
-                    // If permissions already granted by the end of welcome, don't queue permissions tour.
                     if (PermissionHelper.missingPermissions(context).isEmpty()) {
                         cms.setPermissionsTourDone(true)
                     }
@@ -1003,8 +1037,6 @@ fun AppTourDialog(
         }
         val action = step.action_key
         val missing = PermissionHelper.missingPermissions(context)
-        // Never dump the user onto Permissions when everything is already granted —
-        // especially on replay / last-step "Get started".
         when {
             action == "open_overlay_settings" -> context.startActivity(
                 Intent(
@@ -1013,7 +1045,7 @@ fun AppTourDialog(
                 ),
             )
             action == "open_accessibility_settings" ->
-                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                onOpenPermissions?.invoke()
             action == "open_permissions" && !isLast && missing.isNotEmpty() ->
                 onOpenPermissions?.invoke()
         }
@@ -1038,15 +1070,14 @@ fun AppTourDialog(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth(0.94f)
-                .fillMaxHeight(0.78f)
-                .clip(RoundedCornerShape(26.dp))
+                .fillMaxWidth(0.96f)
+                .fillMaxHeight(0.92f)
+                .clip(RoundedCornerShape(28.dp))
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color(0xFF0B1F3A), MtCard),
+                        listOf(Color(0xFFDCEBFF), Color(0xFFF7FBFF), Color.White),
                     ),
                 )
-                .border(1.dp, accent.copy(alpha = 0.4f), RoundedCornerShape(26.dp))
                 .pointerInput(index) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
@@ -1061,24 +1092,23 @@ fun AppTourDialog(
                         },
                     )
                 }
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     tour.title.uppercase(),
-                    color = accent,
-                    fontSize = 11.sp,
+                    color = TourGuideBlue,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.1.sp,
+                    letterSpacing = 1.2.sp,
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(onClick = { markCompleteAndClose("skipped") }) {
-                    Text("Skip", color = MtMid, fontSize = 13.sp)
+                    Text("Skip", color = TourGuideBlue, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
 
-            // Progress dots
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.fillMaxWidth(),
@@ -1087,10 +1117,10 @@ fun AppTourDialog(
                 tour.steps.forEachIndexed { i, _ ->
                     Box(
                         modifier = Modifier
-                            .height(4.dp)
+                            .height(5.dp)
                             .weight(1f)
                             .clip(RoundedCornerShape(99.dp))
-                            .background(if (i <= index) accent else MtBorder),
+                            .background(if (i == index) accent else TourTrackGray),
                     )
                 }
             }
@@ -1098,64 +1128,74 @@ fun AppTourDialog(
             AnimatedContent(
                 targetState = index,
                 transitionSpec = {
-                    (slideInHorizontally { it / 3 } + fadeIn())
-                        .togetherWith(slideOutHorizontally { -it / 3 } + fadeOut())
+                    (slideInHorizontally { it / 4 } + fadeIn())
+                        .togetherWith(slideOutHorizontally { -it / 4 } + fadeOut())
                 },
                 label = "tourStep",
                 modifier = Modifier.weight(1f),
             ) { stepIndex ->
                 val s = tour.steps.getOrNull(stepIndex) ?: return@AnimatedContent
-                val stepAccent = tourStepAccent(stepIndex)
+                val stepIsLast = stepIndex >= tour.steps.lastIndex
+                val stepAccent = tourStepAccent(s, stepIndex, stepIsLast)
                 val stepIcon = tourStepIcon(s, tour.kind, stepIndex)
+                val illustrationRes = tourIllustrationRes(s, tour.kind, stepIndex)
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
                 ) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(120.dp)) {
-                        Box(
-                            modifier = Modifier
-                                .size(110.dp)
-                                .clip(CircleShape)
-                                .background(stepAccent.copy(alpha = 0.12f)),
-                        )
-                        Box(
-                            modifier = Modifier
-                                .size(76.dp)
-                                .clip(RoundedCornerShape(22.dp))
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(stepAccent, stepAccent.copy(alpha = 0.65f)),
-                                    ),
-                                ),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(stepIcon, null, tint = Color.White, modifier = Modifier.size(36.dp))
-                        }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(stepAccent),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(stepIcon, null, tint = Color.White, modifier = Modifier.size(30.dp))
                     }
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
                     Text(
                         s.title,
-                        color = MtHi,
-                        fontSize = 22.sp,
+                        color = TourTitleDark,
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         s.body,
-                        color = MtMid,
+                        color = TourBodyGray,
                         fontSize = 14.sp,
-                        lineHeight = 21.sp,
+                        lineHeight = 20.sp,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(horizontal = 8.dp),
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        "Swipe or use buttons · ${stepIndex + 1} of ${tour.steps.size}",
-                        color = MtMid.copy(alpha = 0.75f),
-                        fontSize = 11.sp,
-                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        when {
+                            s.image_url.isNotBlank() -> AsyncImage(
+                                model = s.image_url,
+                                contentDescription = s.title,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .fillMaxHeight(),
+                            )
+                            illustrationRes != null -> Image(
+                                painter = painterResource(illustrationRes),
+                                contentDescription = s.title,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .fillMaxHeight(),
+                            )
+                        }
+                    }
                 }
             }
 
@@ -1164,23 +1204,26 @@ fun AppTourDialog(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (index > 0) {
-                    IconButton(
-                        onClick = { goBack() },
-                        modifier = Modifier
-                            .size(50.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(MtRow)
-                            .border(1.dp, MtBorder, RoundedCornerShape(14.dp)),
-                    ) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = MtHi)
-                    }
+                IconButton(
+                    onClick = { goBack() },
+                    enabled = index > 0,
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(TourNavFill)
+                        .border(1.dp, TourNavBorder, RoundedCornerShape(16.dp)),
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.ArrowBack,
+                        "Back",
+                        tint = if (index > 0) TourTitleDark else TourBodyGray.copy(alpha = 0.4f),
+                    )
                 }
                 MtPrimaryButton(
                     text = step.cta_text.ifBlank {
                         when {
-                            isLast -> "Get started"
-                            step.action_key.startsWith("open_") -> "Open & continue"
+                            isLast -> "Done"
+                            step.action_key.startsWith("open_") -> "Continue"
                             else -> "Next"
                         }
                     },
@@ -1188,17 +1231,37 @@ fun AppTourDialog(
                     modifier = Modifier.weight(1f),
                     containerColor = accent,
                 )
-                if (!isLast) {
-                    IconButton(
-                        onClick = { goNext() },
+                IconButton(
+                    onClick = { goNext() },
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(TourNavFill)
+                        .border(1.dp, TourNavBorder, RoundedCornerShape(16.dp)),
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.ArrowForward,
+                        "Next",
+                        tint = TourTitleDark,
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                tour.steps.forEachIndexed { i, _ ->
+                    Box(
                         modifier = Modifier
-                            .size(50.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(accent.copy(alpha = 0.2f))
-                            .border(1.dp, accent.copy(alpha = 0.45f), RoundedCornerShape(14.dp)),
-                    ) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowForward, "Next", tint = accent)
-                    }
+                            .padding(horizontal = 4.dp)
+                            .size(if (i == index) 8.dp else 7.dp)
+                            .clip(CircleShape)
+                            .background(if (i == index) accent else TourTrackGray),
+                    )
                 }
             }
         }

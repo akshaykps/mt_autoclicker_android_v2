@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -485,11 +486,21 @@ private fun DockIconButton(
             if (badgeCount > 0) {
                 Box(
                     modifier = Modifier
-                        .size(if (collapsed) 8.dp else 9.dp)
+                        .defaultMinSize(minWidth = if (collapsed) 14.dp else 16.dp, minHeight = if (collapsed) 14.dp else 16.dp)
                         .clip(CircleShape)
                         .background(Color(0xFFDC2626))
-                        .border(1.dp, MtCard, CircleShape),
-                )
+                        .border(1.dp, MtCard, CircleShape)
+                        .padding(horizontal = 3.dp, vertical = 1.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (badgeCount > 99) "99+" else badgeCount.toString(),
+                        color = Color.White,
+                        fontSize = if (collapsed) 8.sp else 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 9.sp,
+                    )
+                }
             }
         }
         // Remove label from layout when collapsed so no empty name space remains.
