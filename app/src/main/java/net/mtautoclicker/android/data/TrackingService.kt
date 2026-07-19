@@ -2,7 +2,6 @@ package net.mtautoclicker.android.data
 
 import android.content.Context
 import android.os.Build
-import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -10,8 +9,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import net.mtautoclicker.android.BuildConfig
-import java.net.HttpURLConnection
-import java.net.URL
+import net.mtautoclicker.android.data.telemetry.TelemetryPrivacyClass
+import net.mtautoclicker.android.data.telemetry.TelemetryQueue
 import java.time.Instant
 import java.util.UUID
 
@@ -30,6 +29,8 @@ data class TrackingBatchPayload(
     val device_model: String = "",
     val android_sdk: Int? = null,
     val cpu_arch: String = "",
+    val client_install_id: String = "",
+    val installed_at: String = "",
     val sessions: List<TrackingSessionPayload> = emptyList(),
     val events: List<TrackingEventPayload> = emptyList(),
 )
@@ -62,6 +63,7 @@ class TrackingService(
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
+    private val queue = TelemetryQueue.get(context)
     private val appVersion: String
         get() = BuildConfig.VERSION_NAME.ifBlank { "1.0.0" }
     private var sessionId: String? = null
@@ -71,7 +73,13 @@ class TrackingService(
     suspend fun trackInstallIfNeeded() = withContext(Dispatchers.IO) {
         if (!settings.analyticsEnabled.first()) return@withContext
         val deviceId = settings.getOrCreateDeviceId()
-        postBatch(basePayload(deviceId))
+        enqueueBatch(
+            basePayload(
+                deviceId = deviceId,
+                installedAt = settings.getOrCreateInstalledAt(),
+            ),
+            queueId = "install-$deviceId",
+        )
     }
 
     suspend fun startSession() {
@@ -103,7 +111,10 @@ class TrackingService(
         }
         val profile = settings.deviceProfileMap()
         postBatch(
-            basePayload(deviceId).copy(
+            basePayload(
+                deviceId = deviceId,
+                installedAt = settings.getOrCreateInstalledAt(),
+            ).copy(
                 sessions = sessions,
                 events = listOf(
                     TrackingEventPayload(
@@ -120,7 +131,7 @@ class TrackingService(
         )
     }
 
-    private fun basePayload(deviceId: String): TrackingBatchPayload {
+    private fun basePayload(deviceId: String, installedAt: String): TrackingBatchPayload {
         val abis = Build.SUPPORTED_ABIS?.firstOrNull().orEmpty()
         return TrackingBatchPayload(
             device_id = deviceId,
@@ -136,31 +147,28 @@ class TrackingService(
             device_model = settings.modelLabel(),
             android_sdk = settings.androidSdkInt(),
             cpu_arch = abis,
+            client_install_id = deviceId,
+            installed_at = installedAt,
         )
     }
 
     private fun postBatch(payload: TrackingBatchPayload) {
-        runCatching {
-            val url = URL("https://mtautoclicker.net/api/tracking/batch/")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                setRequestProperty("Content-Type", "application/json")
-                doOutput = true
-                connectTimeout = 15_000
-                readTimeout = 15_000
-            }
-            conn.outputStream.use { it.write(json.encodeToString(payload).toByteArray()) }
-            val code = conn.responseCode
-            if (code !in 200..299) {
-                Log.w(TAG, "Tracking failed: HTTP $code")
-            }
-            conn.disconnect()
-        }.onFailure {
-            Log.w(TAG, "Tracking error", it)
-        }
+        enqueueBatch(payload)
+    }
+
+    private fun enqueueBatch(
+        payload: TrackingBatchPayload,
+        queueId: String = UUID.randomUUID().toString(),
+    ) {
+        queue.enqueue(
+            endpoint = TRACKING_ENDPOINT,
+            payloadJson = json.encodeToString(payload),
+            privacyClass = TelemetryPrivacyClass.ANALYTICS,
+            id = queueId,
+        )
     }
 
     companion object {
-        private const val TAG = "MtTracking"
+        private const val TRACKING_ENDPOINT = "https://mtautoclicker.net/api/tracking/batch/"
     }
 }

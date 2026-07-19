@@ -54,6 +54,10 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    sourceSets["main"].assets.srcDir(
+        layout.buildDirectory.dir("generated/userGuideAssets"),
+    )
 }
 
 dependencies {
@@ -73,9 +77,22 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+    // 2.9.1 is the newest line compatible with this app's AGP 8.5 / compileSdk 34.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+val generateUserGuideAsset by tasks.registering(Copy::class) {
+    from(rootProject.file("USER_GUIDE.md"))
+    into(layout.buildDirectory.dir("generated/userGuideAssets"))
+    rename { "user_guide.md" }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(generateUserGuideAsset)
 }

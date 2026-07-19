@@ -43,6 +43,7 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.LightMode
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Remove
@@ -116,6 +117,7 @@ private data class StatusBanner(val message: String, val success: Boolean)
 fun SettingsScreen(
     onBack: () -> Unit,
     onStartTour: (String) -> Unit = {},
+    onOpenUserGuide: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -379,6 +381,14 @@ fun SettingsScreen(
         }
 
         SettingsGroup(label = "ABOUT", accent = Color(0xFF6366F1)) {
+            CompactLinkRow(
+                icon = Icons.AutoMirrored.Rounded.MenuBook,
+                iconTint = Color(0xFF2563EB),
+                title = "User guide & tutorials",
+                trailing = "Offline",
+                onClick = onOpenUserGuide,
+            )
+            GroupDivider()
             CompactLinkRow(
                 icon = Icons.Rounded.Info,
                 iconTint = Color(0xFF6366F1),

@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import net.mtautoclicker.android.data.telemetry.TelemetryQueue
 import java.util.UUID
 
 private val Context.settingsDataStore by preferencesDataStore(name = "mt_settings")
@@ -23,6 +24,7 @@ enum class ThemePreference {
 class SettingsRepository(private val context: Context) {
 
     private val deviceIdKey = stringPreferencesKey("device_id")
+    private val installedAtKey = stringPreferencesKey("installed_at")
     private val analyticsKey = booleanPreferencesKey("analytics_enabled")
     private val themeKey = stringPreferencesKey("theme_preference")
     private val preferredBrowserKey = stringPreferencesKey("preferred_browser_package")
@@ -138,8 +140,19 @@ class SettingsRepository(private val context: Context) {
         return result
     }
 
+    suspend fun getOrCreateInstalledAt(): String {
+        val existing = context.settingsDataStore.data.first()[installedAtKey]
+        if (!existing.isNullOrBlank()) return existing
+        val created = java.time.Instant.now().toString()
+        context.settingsDataStore.edit { prefs -> prefs[installedAtKey] = created }
+        return created
+    }
+
     suspend fun setAnalyticsEnabled(enabled: Boolean) {
         context.settingsDataStore.edit { it[analyticsKey] = enabled }
+        if (!enabled) {
+            TelemetryQueue.get(context).purgeAnalytics()
+        }
     }
 
     suspend fun setNotificationSoundMuted(muted: Boolean) {
@@ -363,6 +376,9 @@ class SettingsRepository(private val context: Context) {
             if (backup.rememberRefreshAppChoice && !backup.preferredRefreshAppPackage.isNullOrBlank()) {
                 prefs[preferredRefreshAppKey] = backup.preferredRefreshAppPackage
             }
+        }
+        if (!backup.analyticsEnabled) {
+            TelemetryQueue.get(context).purgeAnalytics()
         }
     }
 }

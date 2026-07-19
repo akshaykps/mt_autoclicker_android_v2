@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.AddCircle
 import androidx.compose.material.icons.rounded.AdsClick
 import androidx.compose.material.icons.rounded.Bookmark
@@ -99,6 +100,7 @@ enum class AppRoute {
     PERMISSIONS,
     FEEDBACK,
     NOTIFICATIONS,
+    USER_GUIDE,
 }
 
 /** Routes that show the floating workflow dock. */
@@ -108,6 +110,7 @@ val DockRoutes = setOf(
     AppRoute.FEEDBACK,
     AppRoute.NOTIFICATIONS,
     AppRoute.SETTINGS,
+    AppRoute.USER_GUIDE,
 )
 
 @Composable
@@ -210,6 +213,16 @@ fun HomeScreen(
                 largeIcon = true,
                 animatedIcon = { AutoRefreshAnimatedIcon(accent = Color(0xFFF59E0B), size = 34.dp) },
                 onClick = { onNavigate(AppRoute.AUTO_REFRESH) },
+            )
+
+            SectionLabel("Help & learning")
+            FeatureCard(
+                title = "User Guide & Tutorials",
+                subtitle = "Search every feature · works offline",
+                accent = AccentBlue,
+                icon = Icons.AutoMirrored.Rounded.MenuBook,
+                compact = true,
+                onClick = { onNavigate(AppRoute.USER_GUIDE) },
             )
         }
     }

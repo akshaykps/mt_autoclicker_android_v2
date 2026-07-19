@@ -1,6 +1,8 @@
 package net.mtautoclicker.android.data
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.util.Log
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -21,8 +23,12 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import net.mtautoclicker.android.BuildConfig
+import net.mtautoclicker.android.data.telemetry.TelemetryPrivacyClass
+import net.mtautoclicker.android.data.telemetry.TelemetryQueue
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.Instant
+import java.util.UUID
 
 private val Context.androidCmsStore by preferencesDataStore(name = "mt_android_cms")
 
@@ -105,6 +111,7 @@ class AndroidCmsRepository(
 ) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val baseUrl = "https://mtautoclicker.net/api/android"
+    private val telemetryQueue = TelemetryQueue.get(context)
     private val appVersion: String
         get() = BuildConfig.VERSION_NAME.ifBlank { "1.0.0" }
 
@@ -234,8 +241,14 @@ class AndroidCmsRepository(
             put("device_id", deviceId)
             put("notification_id", notificationId)
             put("action", action)
+            put("client_action_id", UUID.randomUUID().toString())
+            put("occurred_at", Instant.now().toString())
         }
-        postJson("$baseUrl/notification-action/", body.toString())
+        enqueueJson(
+            "$baseUrl/notification-action/",
+            body.toString(),
+            TelemetryPrivacyClass.FUNCTIONAL,
+        )
     }
 
     suspend fun fetchTutorials(featureKey: String): List<AndroidOverlayDto> = withContext(Dispatchers.IO) {
@@ -339,8 +352,12 @@ class AndroidCmsRepository(
     ): Boolean = withContext(Dispatchers.IO) {
         val deviceId = settings.getOrCreateDeviceId()
         val profile = settings.deviceProfileMap()
+        val clientEventId = UUID.randomUUID().toString()
+        val occurredAt = Instant.now().toString()
         val body = buildJsonObject {
             put("device_id", deviceId)
+            put("client_event_id", clientEventId)
+            put("occurred_at", occurredAt)
             put("feedback_type", feedbackType)
             put("message", message)
             if (rating != null) put("rating", rating)
@@ -359,39 +376,63 @@ class AndroidCmsRepository(
                 metadata.forEach { (k, v) -> put(k, v) }
             })
         }
-        postJson("$baseUrl/feedback/", body.toString())
+        enqueueJson(
+            "$baseUrl/feedback/",
+            body.toString(),
+            TelemetryPrivacyClass.FUNCTIONAL,
+            clientEventId,
+        )
     }
 
     suspend fun reportTourAction(kind: String, action: String, stepId: Int? = null) =
         withContext(Dispatchers.IO) {
             val deviceId = settings.getOrCreateDeviceId()
+            val clientEventId = UUID.randomUUID().toString()
             val body = buildJsonObject {
                 put("device_id", deviceId)
+                put("client_event_id", clientEventId)
+                put("occurred_at", Instant.now().toString())
                 put("tour_kind", kind)
                 put("action", action)
                 put("app_version", appVersion)
                 if (stepId != null) put("step_id", stepId)
             }
-            postJson("$baseUrl/tour-action/", body.toString())
+            enqueueJson(
+                "$baseUrl/tour-action/",
+                body.toString(),
+                TelemetryPrivacyClass.ANALYTICS,
+                clientEventId,
+            )
         }
 
     suspend fun reportOverlayAction(overlayId: Int?, action: String) = withContext(Dispatchers.IO) {
         val deviceId = settings.getOrCreateDeviceId()
+        val clientEventId = UUID.randomUUID().toString()
         val body = buildJsonObject {
             put("device_id", deviceId)
+            put("client_event_id", clientEventId)
+            put("occurred_at", Instant.now().toString())
             put("action", action)
             put("app_version", appVersion)
             if (overlayId != null) put("overlay_id", overlayId)
         }
-        postJson("$baseUrl/overlay-action/", body.toString())
+        enqueueJson(
+            "$baseUrl/overlay-action/",
+            body.toString(),
+            TelemetryPrivacyClass.ANALYTICS,
+            clientEventId,
+        )
     }
 
     suspend fun trackAndroidEvent(name: String, metadata: Map<String, String> = emptyMap()) =
         withContext(Dispatchers.IO) {
             val deviceId = settings.getOrCreateDeviceId()
             val profile = settings.deviceProfileMap()
+            val clientEventId = UUID.randomUUID().toString()
             val body = buildJsonObject {
                 put("device_id", deviceId)
+                put("client_event_id", clientEventId)
+                put("occurred_at", Instant.now().toString())
                 put("event_name", name)
                 put("app_version", appVersion)
                 put("os_version", settings.osVersionLabel())
@@ -408,14 +449,21 @@ class AndroidCmsRepository(
                     metadata.forEach { (k, v) -> put(k, v) }
                 })
             }
-            postJson("$baseUrl/event/", body.toString())
+            enqueueJson(
+                "$baseUrl/event/",
+                body.toString(),
+                TelemetryPrivacyClass.ANALYTICS,
+                clientEventId,
+            )
         }
 
     private suspend fun dismissedWhatsNewIds(): Set<String> {
         return dismissedIds(whatsNewDismissedKey)
     }
 
-    private fun getJson(url: String): String? = runCatching {
+    private fun getJson(url: String): String? {
+        if (!hasValidatedInternet()) return null
+        return runCatching {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 12_000
@@ -426,21 +474,37 @@ class AndroidCmsRepository(
             ?.bufferedReader()?.readText()
         conn.disconnect()
         if (code in 200..299) text else null
-    }.onFailure { Log.w(TAG, "GET failed $url", it) }.getOrNull()
+        }.onFailure { Log.w(TAG, "GET failed $url", it) }.getOrNull()
+    }
 
-    private fun postJson(url: String, body: String): Boolean = runCatching {
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            setRequestProperty("Content-Type", "application/json")
-            doOutput = true
-            connectTimeout = 12_000
-            readTimeout = 12_000
+    private fun hasValidatedInternet(): Boolean {
+        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        val network = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
+    private suspend fun enqueueJson(
+        url: String,
+        body: String,
+        privacyClass: TelemetryPrivacyClass,
+        queueId: String = UUID.randomUUID().toString(),
+    ): Boolean {
+        if (
+            privacyClass == TelemetryPrivacyClass.ANALYTICS &&
+            !settings.analyticsEnabled.first()
+        ) {
+            return false
         }
-        conn.outputStream.use { it.write(body.toByteArray()) }
-        val code = conn.responseCode
-        conn.disconnect()
-        code in 200..299
-    }.onFailure { Log.w(TAG, "POST failed $url", it) }.getOrDefault(false)
+        return telemetryQueue.enqueue(
+            endpoint = url,
+            payloadJson = body,
+            privacyClass = privacyClass,
+            id = queueId,
+        )
+    }
 
     @Serializable
     private data class TourListResponse(val tours: List<AndroidTourDto> = emptyList())

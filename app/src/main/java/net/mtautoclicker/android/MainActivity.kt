@@ -50,6 +50,7 @@ import net.mtautoclicker.android.ui.screens.PermissionsScreen
 import net.mtautoclicker.android.ui.screens.PresetsScreen
 import net.mtautoclicker.android.ui.screens.SettingsScreen
 import net.mtautoclicker.android.ui.screens.SingleTargetScreen
+import net.mtautoclicker.android.ui.screens.UserGuideScreen
 import net.mtautoclicker.android.ui.theme.MtDeep
 import net.mtautoclicker.android.ui.theme.MtTheme
 
@@ -148,6 +149,21 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private fun appRouteFromGuideKey(key: String): AppRoute? = when (key.lowercase()) {
+    "home" -> AppRoute.HOME
+    "settings" -> AppRoute.SETTINGS
+    "permissions" -> AppRoute.PERMISSIONS
+    "feedback" -> AppRoute.FEEDBACK
+    "notifications", "inbox" -> AppRoute.NOTIFICATIONS
+    "presets" -> AppRoute.PRESETS
+    "single_target", "single-target" -> AppRoute.SINGLE_TARGET
+    "multi_target", "multi-target" -> AppRoute.MULTI_TARGET
+    "macro_recorder", "macro-recorder" -> AppRoute.MACRO_RECORDER
+    "auto_refresh", "auto-refresh" -> AppRoute.AUTO_REFRESH
+    "full_page_screenshot", "full-page-screenshot" -> AppRoute.FULL_PAGE_SCREENSHOT
+    else -> null
+}
+
 @Composable
 private fun MtAppRoot(
     version: String,
@@ -158,6 +174,8 @@ private fun MtAppRoot(
     var showSplash by rememberSaveable { mutableStateOf(true) }
     var route by rememberSaveable { mutableStateOf(AppRoute.HOME) }
     var pendingTourKind by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingGuideSection by rememberSaveable { mutableStateOf<String?>(null) }
+    var guideReturnRoute by rememberSaveable { mutableStateOf(AppRoute.HOME) }
     var unreadNotifications by remember { mutableIntStateOf(0) }
     val dockScroll = remember { DockScrollController() }
     val showDock = route in DockRoutes
@@ -196,7 +214,13 @@ private fun MtAppRoot(
                 when (route) {
                     AppRoute.HOME -> HomeScreen(
                         version = version,
-                        onNavigate = { route = it },
+                        onNavigate = {
+                            if (it == AppRoute.USER_GUIDE) {
+                                guideReturnRoute = AppRoute.HOME
+                                pendingGuideSection = null
+                            }
+                            route = it
+                        },
                     )
                     AppRoute.SINGLE_TARGET -> SingleTargetScreen(
                         onBack = { route = AppRoute.HOME },
@@ -224,6 +248,11 @@ private fun MtAppRoot(
                     )
                     AppRoute.SETTINGS -> SettingsScreen(
                         onBack = { route = AppRoute.HOME },
+                        onOpenUserGuide = {
+                            guideReturnRoute = AppRoute.SETTINGS
+                            pendingGuideSection = null
+                            route = AppRoute.USER_GUIDE
+                        },
                         onStartTour = { kind ->
                             pendingTourKind = kind
                             route = AppRoute.HOME
@@ -234,7 +263,17 @@ private fun MtAppRoot(
                     AppRoute.NOTIFICATIONS -> NotificationsScreen(
                         onBack = { route = AppRoute.HOME },
                         onDeepLink = { deepLink ->
-                            route = when (deepLink.lowercase()) {
+                            val normalized = deepLink.lowercase()
+                            if (normalized == "tutorial" || normalized == "user_guide" || normalized == "help") {
+                                guideReturnRoute = AppRoute.NOTIFICATIONS
+                                pendingGuideSection = null
+                                route = AppRoute.USER_GUIDE
+                            } else if (normalized.startsWith("tutorial:")) {
+                                guideReturnRoute = AppRoute.NOTIFICATIONS
+                                pendingGuideSection = normalized.substringAfter(':').takeIf { it.isNotBlank() }
+                                route = AppRoute.USER_GUIDE
+                            } else {
+                                route = when (normalized) {
                                 "settings" -> AppRoute.SETTINGS
                                 "permissions" -> AppRoute.PERMISSIONS
                                 "feedback" -> AppRoute.FEEDBACK
@@ -245,7 +284,15 @@ private fun MtAppRoot(
                                 "auto_refresh", "auto-refresh" -> AppRoute.AUTO_REFRESH
                                 "full_page_screenshot", "full-page-screenshot" -> AppRoute.FULL_PAGE_SCREENSHOT
                                 else -> AppRoute.NOTIFICATIONS
+                                }
                             }
+                        },
+                    )
+                    AppRoute.USER_GUIDE -> UserGuideScreen(
+                        onBack = { route = guideReturnRoute },
+                        initialSectionId = pendingGuideSection,
+                        onOpenRoute = { routeKey ->
+                            route = appRouteFromGuideKey(routeKey) ?: AppRoute.USER_GUIDE
                         },
                     )
                 }
