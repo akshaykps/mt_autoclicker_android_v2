@@ -75,6 +75,7 @@ import net.mtautoclicker.android.ui.theme.MtHi
 import net.mtautoclicker.android.ui.theme.MtMid
 import net.mtautoclicker.android.ui.theme.MtPurple
 import net.mtautoclicker.android.ui.theme.MtRow
+import net.mtautoclicker.android.ui.theme.LocalMtPalette
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
@@ -271,24 +272,33 @@ fun MacroRecorderScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
                     }
                 }
 
+                val warningDark = LocalMtPalette.current.isDark
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFFF59E0B).copy(alpha = 0.08f))
-                        .border(1.dp, Color(0xFFF59E0B).copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                        .background(
+                            if (warningDark) Color(0xFFF59E0B).copy(alpha = 0.14f)
+                            else Color(0xFFFEF3C7),
+                        )
+                        .border(
+                            1.dp,
+                            if (warningDark) Color(0xFFF59E0B).copy(alpha = 0.35f)
+                            else Color(0xFFF59E0B).copy(alpha = 0.55f),
+                            RoundedCornerShape(12.dp),
+                        )
                         .padding(12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Icon(
                         Icons.Rounded.WarningAmber,
                         null,
-                        tint = Color(0xFFFBBF24),
+                        tint = if (warningDark) Color(0xFFFBBF24) else Color(0xFFB45309),
                         modifier = Modifier.size(14.dp),
                     )
                     Text(
                         "Playback injects gestures via Accessibility. Some apps may ignore non-trusted input.",
-                        color = Color(0xFFFCD34D).copy(alpha = 0.9f),
+                        color = if (warningDark) Color(0xFFFDE68A) else Color(0xFF78350F),
                         fontSize = 11.sp,
                         lineHeight = 15.sp,
                     )

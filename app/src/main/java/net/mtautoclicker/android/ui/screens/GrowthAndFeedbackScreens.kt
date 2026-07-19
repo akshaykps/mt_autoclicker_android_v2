@@ -960,9 +960,9 @@ private fun tourStepIcon(step: AndroidTourStepDto, kind: String, index: Int): Im
 }
 
 private fun tourStepAccent(index: Int): Color = when (index % 3) {
-    0 -> Color(0xFF8B5CF6)
-    1 -> Color(0xFF3B82F6)
-    else -> Color(0xFF10B981)
+    0 -> Color(0xFF2563EB) // brand blue
+    1 -> Color(0xFF0EA5E9) // sky
+    else -> Color(0xFF10B981) // emerald
 }
 
 @Composable
@@ -1043,7 +1043,7 @@ fun AppTourDialog(
                 .clip(RoundedCornerShape(26.dp))
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color(0xFF0E1538), MtCard),
+                        listOf(Color(0xFF0B1F3A), MtCard),
                     ),
                 )
                 .border(1.dp, accent.copy(alpha = 0.4f), RoundedCornerShape(26.dp))

@@ -283,15 +283,45 @@ class SettingsRepository(private val context: Context) {
     suspend fun setPreferredBrowser(packageName: String?, remember: Boolean) =
         setPreferredApp(packageName, remember)
 
-    fun osPlatformLabel(): String {
+    fun isChromeOsDevice(): Boolean {
         val model = Build.MODEL.orEmpty()
         val manufacturer = Build.MANUFACTURER.orEmpty()
-        val isChromeOs = model.contains("chromebook", ignoreCase = true) ||
-            manufacturer.contains("google", ignoreCase = true) && model.contains("chrome", ignoreCase = true)
-        return if (isChromeOs) "chromeos" else "android"
+        return model.contains("chromebook", ignoreCase = true) ||
+            (manufacturer.contains("google", ignoreCase = true) && model.contains("chrome", ignoreCase = true))
     }
 
+    fun osPlatformLabel(): String = if (isChromeOsDevice()) "chromeos" else "android"
+
     fun osVersionLabel(): String = "${Build.VERSION.RELEASE} (${Build.MODEL})"
+
+    fun androidRelease(): String = Build.VERSION.RELEASE.orEmpty()
+
+    fun androidSdkInt(): Int = Build.VERSION.SDK_INT
+
+    fun manufacturerLabel(): String = Build.MANUFACTURER.orEmpty()
+
+    fun brandLabel(): String = Build.BRAND.orEmpty()
+
+    fun modelLabel(): String = Build.MODEL.orEmpty()
+
+    fun languageLabel(): String =
+        java.util.Locale.getDefault().toLanguageTag().ifBlank { "en" }
+
+    fun timezoneLabel(): String =
+        java.util.TimeZone.getDefault().id.ifBlank { "UTC" }
+
+    /** Structured device fingerprint for tracking / feedback APIs. */
+    fun deviceProfileMap(): Map<String, String> = buildMap {
+        put("platform", osPlatformLabel())
+        put("manufacturer", manufacturerLabel())
+        put("brand", brandLabel())
+        put("model", modelLabel())
+        put("android_release", androidRelease())
+        put("android_sdk", androidSdkInt().toString())
+        put("language", languageLabel())
+        put("timezone", timezoneLabel())
+        put("is_chromeos", isChromeOsDevice().toString())
+    }
 
     suspend fun exportSettingsBackup(): SettingsBackup {
         val prefs = context.settingsDataStore.data.first()

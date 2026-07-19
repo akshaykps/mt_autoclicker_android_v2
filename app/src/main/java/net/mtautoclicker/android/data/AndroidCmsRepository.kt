@@ -20,6 +20,7 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import net.mtautoclicker.android.BuildConfig
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -104,7 +105,8 @@ class AndroidCmsRepository(
 ) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val baseUrl = "https://mtautoclicker.net/api/android"
-    private val appVersion = "1.0.0"
+    private val appVersion: String
+        get() = BuildConfig.VERSION_NAME.ifBlank { "1.0.0" }
 
     private val onboardingDoneKey = booleanPreferencesKey("tour_onboarding_done")
     private val permissionsTourDoneKey = booleanPreferencesKey("tour_permissions_done")
@@ -336,6 +338,7 @@ class AndroidCmsRepository(
         metadata: Map<String, String> = emptyMap(),
     ): Boolean = withContext(Dispatchers.IO) {
         val deviceId = settings.getOrCreateDeviceId()
+        val profile = settings.deviceProfileMap()
         val body = buildJsonObject {
             put("device_id", deviceId)
             put("feedback_type", feedbackType)
@@ -343,8 +346,16 @@ class AndroidCmsRepository(
             if (rating != null) put("rating", rating)
             put("app_version", appVersion)
             put("os_version", settings.osVersionLabel())
+            put("os_platform", settings.osPlatformLabel())
+            put("manufacturer", settings.manufacturerLabel())
+            put("brand", settings.brandLabel())
+            put("device_model", settings.modelLabel())
+            put("android_release", settings.androidRelease())
+            put("android_sdk", settings.androidSdkInt())
+            put("language", settings.languageLabel())
+            put("timezone", settings.timezoneLabel())
             put("metadata", buildJsonObject {
-                put("platform", settings.osPlatformLabel())
+                profile.forEach { (k, v) -> put(k, v) }
                 metadata.forEach { (k, v) -> put(k, v) }
             })
         }
@@ -378,12 +389,22 @@ class AndroidCmsRepository(
     suspend fun trackAndroidEvent(name: String, metadata: Map<String, String> = emptyMap()) =
         withContext(Dispatchers.IO) {
             val deviceId = settings.getOrCreateDeviceId()
+            val profile = settings.deviceProfileMap()
             val body = buildJsonObject {
                 put("device_id", deviceId)
                 put("event_name", name)
                 put("app_version", appVersion)
                 put("os_version", settings.osVersionLabel())
+                put("os_platform", settings.osPlatformLabel())
+                put("manufacturer", settings.manufacturerLabel())
+                put("brand", settings.brandLabel())
+                put("device_model", settings.modelLabel())
+                put("android_release", settings.androidRelease())
+                put("android_sdk", settings.androidSdkInt())
+                put("language", settings.languageLabel())
+                put("timezone", settings.timezoneLabel())
                 put("metadata", buildJsonObject {
+                    profile.forEach { (k, v) -> put(k, v) }
                     metadata.forEach { (k, v) -> put(k, v) }
                 })
             }

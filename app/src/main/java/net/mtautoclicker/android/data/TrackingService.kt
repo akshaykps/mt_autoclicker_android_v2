@@ -1,12 +1,15 @@
 package net.mtautoclicker.android.data
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import net.mtautoclicker.android.BuildConfig
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Instant
@@ -18,8 +21,15 @@ data class TrackingBatchPayload(
     val app_version: String,
     val os_platform: String,
     val os_version: String,
-    val app_variant: String = "chromeos",
-    val installation_source: String = "play_store",
+    val app_variant: String = "",
+    val installation_source: String = "",
+    val timezone: String = "",
+    val language: String = "",
+    val manufacturer: String = "",
+    val brand: String = "",
+    val device_model: String = "",
+    val android_sdk: Int? = null,
+    val cpu_arch: String = "",
     val sessions: List<TrackingSessionPayload> = emptyList(),
     val events: List<TrackingEventPayload> = emptyList(),
 )
@@ -48,49 +58,85 @@ class TrackingService(
     private val context: Context,
     private val settings: SettingsRepository,
 ) {
-    private val json = Json { ignoreUnknownKeys = true }
-    private val appVersion = "1.0.0"
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
+    private val appVersion: String
+        get() = BuildConfig.VERSION_NAME.ifBlank { "1.0.0" }
     private var sessionId: String? = null
     private var sessionStartedAt: String? = null
+    private var sessionPosted = false
 
     suspend fun trackInstallIfNeeded() = withContext(Dispatchers.IO) {
+        if (!settings.analyticsEnabled.first()) return@withContext
         val deviceId = settings.getOrCreateDeviceId()
-        val payload = TrackingBatchPayload(
-            device_id = deviceId,
-            app_version = appVersion,
-            os_platform = settings.osPlatformLabel(),
-            os_version = settings.osVersionLabel(),
-            installation_source = "play_store",
-        )
-        postBatch(payload)
+        postBatch(basePayload(deviceId))
     }
 
     suspend fun startSession() {
         sessionId = UUID.randomUUID().toString()
         sessionStartedAt = Instant.now().toString()
+        sessionPosted = false
     }
 
     suspend fun trackEvent(name: String, metadata: Map<String, String> = emptyMap()) = withContext(Dispatchers.IO) {
+        if (!settings.analyticsEnabled.first()) return@withContext
         val deviceId = settings.getOrCreateDeviceId()
-        val sid = sessionId ?: UUID.randomUUID().toString().also { sessionId = it }
-        val payload = TrackingBatchPayload(
+        val sid = sessionId ?: UUID.randomUUID().toString().also {
+            sessionId = it
+            sessionStartedAt = Instant.now().toString()
+            sessionPosted = false
+        }
+        val startedAt = sessionStartedAt ?: Instant.now().toString()
+        val sessions = if (!sessionPosted) {
+            sessionPosted = true
+            listOf(
+                TrackingSessionPayload(
+                    session_id = sid,
+                    started_at = startedAt,
+                    app_version = appVersion,
+                ),
+            )
+        } else {
+            emptyList()
+        }
+        val profile = settings.deviceProfileMap()
+        postBatch(
+            basePayload(deviceId).copy(
+                sessions = sessions,
+                events = listOf(
+                    TrackingEventPayload(
+                        session_id = sid,
+                        event_type = "feature_used",
+                        event_name = name,
+                        app_version = appVersion,
+                        metadata = profile + metadata,
+                        client_event_id = UUID.randomUUID().toString(),
+                        occurred_at = Instant.now().toString(),
+                    ),
+                ),
+            ),
+        )
+    }
+
+    private fun basePayload(deviceId: String): TrackingBatchPayload {
+        val abis = Build.SUPPORTED_ABIS?.firstOrNull().orEmpty()
+        return TrackingBatchPayload(
             device_id = deviceId,
             app_version = appVersion,
             os_platform = settings.osPlatformLabel(),
             os_version = settings.osVersionLabel(),
-            events = listOf(
-                TrackingEventPayload(
-                    session_id = sid,
-                    event_type = "feature",
-                    event_name = name,
-                    app_version = appVersion,
-                    metadata = metadata,
-                    client_event_id = UUID.randomUUID().toString(),
-                    occurred_at = Instant.now().toString(),
-                ),
-            ),
+            app_variant = "full",
+            installation_source = "play_store",
+            timezone = settings.timezoneLabel(),
+            language = settings.languageLabel(),
+            manufacturer = settings.manufacturerLabel(),
+            brand = settings.brandLabel(),
+            device_model = settings.modelLabel(),
+            android_sdk = settings.androidSdkInt(),
+            cpu_arch = abis,
         )
-        postBatch(payload)
     }
 
     private fun postBatch(payload: TrackingBatchPayload) {
