@@ -32,6 +32,7 @@ import net.mtautoclicker.android.engine.AutomationLauncher
 import net.mtautoclicker.android.engine.LaunchResult
 import net.mtautoclicker.android.engine.formatInterval
 import net.mtautoclicker.android.engine.formatStopSummary
+import net.mtautoclicker.android.ui.components.AccentBlue
 import net.mtautoclicker.android.ui.components.ExtensionStyleFeatureHero
 import net.mtautoclicker.android.ui.components.FeaturePageScaffold
 import net.mtautoclicker.android.ui.components.FeatureRecentPanel
@@ -39,6 +40,7 @@ import net.mtautoclicker.android.ui.components.FeatureStepUi
 import net.mtautoclicker.android.ui.components.FeatureTab
 import net.mtautoclicker.android.ui.components.FeatureTabBar
 import net.mtautoclicker.android.ui.components.SettingsCard
+import net.mtautoclicker.android.ui.components.SingleTargetAnimatedIcon
 import net.mtautoclicker.android.ui.components.SingleTargetGradient
 import net.mtautoclicker.android.ui.theme.MtEmerald
 import net.mtautoclicker.android.ui.theme.MtMid
@@ -104,6 +106,9 @@ fun SingleTargetScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit) {
                     scope.launch { scrollState.animateScrollTo(settingsY.coerceAtLeast(0)) }
                 },
                 starting = starting,
+                animatedIcon = {
+                    SingleTargetAnimatedIcon(accent = AccentBlue, size = 36.dp)
+                },
             )
 
             status?.let { Text(it, color = MtEmerald) }

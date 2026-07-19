@@ -1,13 +1,17 @@
 package net.mtautoclicker.android.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -54,6 +58,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
@@ -122,19 +127,24 @@ fun PageScaffold(
             }
             .verticalScroll(scrollState)
             .padding(horizontal = horizontalPadding)
-            .padding(top = 6.dp, bottom = 20.dp),
+            .padding(top = 10.dp, bottom = 20.dp),
         verticalArrangement = Arrangement.spacedBy(contentSpacing),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(MtCard)
+                .border(1.dp, MtBorder, RoundedCornerShape(16.dp))
+                .padding(horizontal = 10.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (onBack != null) {
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(42.dp)
                         .clip(CircleShape)
-                        .background(MtCard)
+                        .background(MtRow)
                         .border(1.dp, MtBorder, CircleShape)
                         .clickable(onClick = onBack),
                     contentAlignment = Alignment.Center,
@@ -143,15 +153,27 @@ fun PageScaffold(
                         imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                         contentDescription = "Back",
                         tint = MtHi,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(20.dp),
                     )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MtCard)
+                        .border(1.dp, MtBlue.copy(alpha = 0.35f), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    BrandAnimatedIcon(accent = MtBlue, size = 36.dp)
                 }
                 Spacer(modifier = Modifier.width(10.dp))
             }
             Text(
                 text = title,
                 color = MtHi,
-                fontSize = 18.sp,
+                fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f),
             )
@@ -287,6 +309,76 @@ fun MetricCard(
     }
 }
 
+/** Single compact interactive strip for session stats on Home. */
+@Composable
+fun SessionMetricsStrip(
+    clicks: String,
+    runtime: String,
+    runs: String,
+    modifier: Modifier = Modifier,
+) {
+    var selected by remember { mutableStateOf(0) }
+    val items = listOf(
+        Triple("Clicks", clicks, AccentBlue),
+        Triple("Runtime", runtime, AccentViolet),
+        Triple("Runs", runs, AccentEmerald),
+    )
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MtCard)
+            .border(1.dp, MtBorder, RoundedCornerShape(14.dp))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        items.forEachIndexed { index, (label, value, accent) ->
+            val active = selected == index
+            val interaction = remember { MutableInteractionSource() }
+            val pressed by interaction.collectIsPressedAsState()
+            val scale by animateFloatAsState(
+                targetValue = if (pressed) 0.96f else 1f,
+                animationSpec = spring(dampingRatio = 0.7f, stiffness = 520f),
+                label = "metricScale$index",
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .graphicsLayer { scaleX = scale; scaleY = scale }
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(if (active) accent.copy(alpha = 0.12f) else Color.Transparent)
+                    .border(
+                        1.dp,
+                        if (active) accent.copy(alpha = 0.45f) else Color.Transparent,
+                        RoundedCornerShape(11.dp),
+                    )
+                    .clickable(
+                        interactionSource = interaction,
+                        indication = null,
+                    ) { selected = index }
+                    .padding(horizontal = 6.dp, vertical = 7.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    label,
+                    color = if (active) accent else MtMid,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    value,
+                    color = accent,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun FeatureCard(
     title: String,
@@ -295,8 +387,27 @@ fun FeatureCard(
     icon: ImageVector,
     onClick: () -> Unit,
     compact: Boolean = false,
+    /** Larger icon well for animated / demo icons. */
+    largeIcon: Boolean = false,
+    /** When set, replaces the static icon glyph. */
+    animatedIcon: (@Composable BoxScope.() -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(if (compact) 14.dp else 18.dp)
+    val iconWell = when {
+        largeIcon -> if (compact) 46.dp else 64.dp
+        compact -> 36.dp
+        else -> 48.dp
+    }
+    val iconCorner = when {
+        largeIcon -> if (compact) 12.dp else 16.dp
+        compact -> 10.dp
+        else -> 14.dp
+    }
+    val glyphSize = when {
+        largeIcon -> if (compact) 30.dp else 32.dp
+        compact -> 18.dp
+        else -> 24.dp
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -305,28 +416,32 @@ fun FeatureCard(
             .background(MtCard)
             .border(1.dp, MtBorder.copy(alpha = 0.85f), shape)
             .clickable(onClick = onClick)
-            .padding(if (compact) 10.dp else 14.dp),
+            .padding(if (compact) 8.dp else 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp),
     ) {
         Box(
             modifier = Modifier
-                .size(if (compact) 36.dp else 48.dp)
-                .clip(RoundedCornerShape(if (compact) 10.dp else 14.dp))
+                .size(iconWell)
+                .clip(RoundedCornerShape(iconCorner))
                 .background(
                     Brush.linearGradient(
                         listOf(accent.copy(alpha = 0.35f), accent.copy(alpha = 0.12f)),
                     ),
                 )
-                .border(1.dp, accent.copy(alpha = 0.35f), RoundedCornerShape(if (compact) 10.dp else 14.dp)),
+                .border(1.dp, accent.copy(alpha = 0.35f), RoundedCornerShape(iconCorner)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = accent,
-                modifier = Modifier.size(if (compact) 18.dp else 24.dp),
-            )
+            if (animatedIcon != null) {
+                animatedIcon()
+            } else {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(glyphSize),
+                )
+            }
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -553,45 +668,56 @@ fun HeroHeader(
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    listOf(MtBlue.copy(alpha = 0.14f), Color.Transparent),
+                    listOf(MtBlue.copy(alpha = 0.16f), Color.Transparent),
                 ),
             )
             .padding(horizontal = if (compact) 14.dp else 18.dp)
-            .padding(top = if (compact) 6.dp else 12.dp, bottom = if (compact) 4.dp else 8.dp),
+            .padding(top = if (compact) 10.dp else 14.dp, bottom = if (compact) 8.dp else 12.dp),
     ) {
         Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(MtCard)
+                .border(1.dp, MtBorder, RoundedCornerShape(18.dp))
+                .padding(horizontal = 12.dp, vertical = if (compact) 12.dp else 14.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Image(
-                painter = painterResource(R.drawable.ic_app_logo),
-                contentDescription = "MT Auto Clicker",
-                contentScale = ContentScale.Crop,
+            Box(
                 modifier = Modifier
-                    .size(if (compact) 40.dp else 48.dp)
-                    .clip(RoundedCornerShape(if (compact) 12.dp else 14.dp))
-                    .border(1.dp, MtBorder, RoundedCornerShape(if (compact) 12.dp else 14.dp)),
-            )
+                    .size(if (compact) 52.dp else 56.dp)
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(MtCard)
+                    .border(1.dp, MtBlue.copy(alpha = 0.35f), RoundedCornerShape(15.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                BrandAnimatedIcon(
+                    accent = MtBlue,
+                    size = if (compact) 46.dp else 50.dp,
+                )
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     "MT Auto Clicker",
                     color = MtHi,
-                    fontSize = if (compact) 17.sp else 20.sp,
+                    fontSize = if (compact) 18.sp else 21.sp,
                     fontWeight = FontWeight.Bold,
                 )
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     "Click less. Do more.",
                     color = MtMid,
-                    fontSize = if (compact) 11.sp else 13.sp,
+                    fontSize = if (compact) 12.sp else 13.sp,
                 )
             }
             if (onNotificationsClick != null) {
                 Box(
                     modifier = Modifier
-                        .size(if (compact) 36.dp else 40.dp)
+                        .size(if (compact) 44.dp else 46.dp)
                         .clip(CircleShape)
-                        .background(MtCard)
-                        .border(1.dp, MtBorder, CircleShape)
+                        .background(MtBlue.copy(alpha = 0.12f))
+                        .border(1.dp, MtBlue.copy(alpha = 0.35f), CircleShape)
                         .clickable(onClick = onNotificationsClick),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -599,16 +725,17 @@ fun HeroHeader(
                         Icons.Rounded.Notifications,
                         contentDescription = "Notifications",
                         tint = MtBlue,
-                        modifier = Modifier.size(if (compact) 18.dp else 20.dp),
+                        modifier = Modifier.size(if (compact) 20.dp else 22.dp),
                     )
                     if (notificationCount > 0) {
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .size(if (compact) 8.dp else 15.dp)
+                                .padding(4.dp)
+                                .size(if (compact) 10.dp else 16.dp)
                                 .clip(CircleShape)
                                 .background(Color(0xFFDC2626))
-                                .border(1.dp, MtCard, CircleShape),
+                                .border(1.5.dp, MtCard, CircleShape),
                             contentAlignment = Alignment.Center,
                         ) {
                             if (!compact) {

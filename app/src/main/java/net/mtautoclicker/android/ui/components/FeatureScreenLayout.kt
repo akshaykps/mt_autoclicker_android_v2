@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -163,6 +164,8 @@ fun ExtensionStyleFeatureHero(
     onStart: () -> Unit,
     onEditSummary: () -> Unit,
     starting: Boolean = false,
+    /** Same looping demo icon used on Home feature cards. */
+    animatedIcon: (@Composable BoxScope.() -> Unit)? = null,
 ) {
     var stepsOpen by remember { mutableStateOf(true) }
     val cardShape = RoundedCornerShape(18.dp)
@@ -174,6 +177,7 @@ fun ExtensionStyleFeatureHero(
     val summaryEditTint = if (dark) Color(0xFF7DD3FC) else Color(0xFF0369A1)
     val summaryEditBorder = if (dark) Color(0xFF38BDF8).copy(alpha = 0.45f) else Color(0xFF0284C7).copy(alpha = 0.50f)
     val howBg = if (dark) MtDeep.copy(alpha = 0.65f) else MtRow
+    val accent = accentGradient.first()
 
     Column(
         modifier = Modifier
@@ -203,12 +207,28 @@ fun ExtensionStyleFeatureHero(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(56.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Brush.linearGradient(accentGradient)),
+                        .then(
+                            if (animatedIcon != null) {
+                                Modifier
+                                    .background(
+                                        Brush.linearGradient(
+                                            listOf(accent.copy(alpha = 0.32f), accent.copy(alpha = 0.12f)),
+                                        ),
+                                    )
+                                    .border(1.dp, accent.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                            } else {
+                                Modifier.background(Brush.linearGradient(accentGradient))
+                            },
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(icon, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                    if (animatedIcon != null) {
+                        animatedIcon()
+                    } else {
+                        Icon(icon, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                    }
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(title, color = MtHi, fontWeight = FontWeight.Bold, fontSize = 16.sp)

@@ -69,11 +69,16 @@ import net.mtautoclicker.android.ui.components.AccentBlue
 import net.mtautoclicker.android.ui.components.AccentEmerald
 import net.mtautoclicker.android.ui.components.AccentRose
 import net.mtautoclicker.android.ui.components.AccentViolet
+import net.mtautoclicker.android.ui.components.AutoRefreshAnimatedIcon
 import net.mtautoclicker.android.ui.components.FeatureCard
 import net.mtautoclicker.android.ui.components.HeroHeader
 import net.mtautoclicker.android.ui.components.LocalDockScrollReporter
-import net.mtautoclicker.android.ui.components.MetricCard
+import net.mtautoclicker.android.ui.components.MacroRecorderAnimatedIcon
+import net.mtautoclicker.android.ui.components.MultiTargetAnimatedIcon
+import net.mtautoclicker.android.ui.components.ScreenshotAnimatedIcon
 import net.mtautoclicker.android.ui.components.SectionLabel
+import net.mtautoclicker.android.ui.components.SessionMetricsStrip
+import net.mtautoclicker.android.ui.components.SingleTargetAnimatedIcon
 import net.mtautoclicker.android.ui.components.mtSafeEdges
 import net.mtautoclicker.android.ui.theme.MtBorder
 import net.mtautoclicker.android.ui.theme.MtCard
@@ -143,35 +148,14 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp)
-                .padding(bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(bottom = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                MetricCard(
-                    label = "Clicks",
-                    value = stats.totalClicks.toString(),
-                    accent = AccentBlue,
-                    compact = true,
-                    modifier = Modifier.weight(1f),
-                )
-                MetricCard(
-                    label = "Runtime",
-                    value = formatDuration(stats.totalRuntimeMs),
-                    accent = AccentViolet,
-                    compact = true,
-                    modifier = Modifier.weight(1f),
-                )
-                MetricCard(
-                    label = "Runs",
-                    value = stats.runCount.toString(),
-                    accent = AccentEmerald,
-                    compact = true,
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            SessionMetricsStrip(
+                clicks = stats.totalClicks.toString(),
+                runtime = formatDuration(stats.totalRuntimeMs),
+                runs = stats.runCount.toString(),
+            )
 
             QuickStartStrip()
 
@@ -183,6 +167,8 @@ fun HomeScreen(
                 accent = AccentBlue,
                 icon = Icons.Rounded.AdsClick,
                 compact = true,
+                largeIcon = true,
+                animatedIcon = { SingleTargetAnimatedIcon(accent = AccentBlue, size = 34.dp) },
                 onClick = { onNavigate(AppRoute.SINGLE_TARGET) },
             )
             FeatureCard(
@@ -191,6 +177,8 @@ fun HomeScreen(
                 accent = AccentViolet,
                 icon = Icons.Rounded.GridView,
                 compact = true,
+                largeIcon = true,
+                animatedIcon = { MultiTargetAnimatedIcon(accent = AccentViolet, size = 34.dp) },
                 onClick = { onNavigate(AppRoute.MULTI_TARGET) },
             )
             FeatureCard(
@@ -199,6 +187,8 @@ fun HomeScreen(
                 accent = AccentRose,
                 icon = Icons.Rounded.FiberManualRecord,
                 compact = true,
+                largeIcon = true,
+                animatedIcon = { MacroRecorderAnimatedIcon(accent = AccentRose, size = 34.dp) },
                 onClick = { onNavigate(AppRoute.MACRO_RECORDER) },
             )
             FeatureCard(
@@ -207,6 +197,8 @@ fun HomeScreen(
                 accent = Color(0xFF06B6D4),
                 icon = Icons.Rounded.PhotoCamera,
                 compact = true,
+                largeIcon = true,
+                animatedIcon = { ScreenshotAnimatedIcon(accent = Color(0xFF06B6D4), size = 34.dp) },
                 onClick = { onNavigate(AppRoute.FULL_PAGE_SCREENSHOT) },
             )
             FeatureCard(
@@ -215,6 +207,8 @@ fun HomeScreen(
                 accent = Color(0xFFF59E0B),
                 icon = Icons.Rounded.Refresh,
                 compact = true,
+                largeIcon = true,
+                animatedIcon = { AutoRefreshAnimatedIcon(accent = Color(0xFFF59E0B), size = 34.dp) },
                 onClick = { onNavigate(AppRoute.AUTO_REFRESH) },
             )
         }
@@ -234,18 +228,18 @@ private fun QuickStartStrip() {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(MtCard)
-            .border(1.dp, MtBorder, RoundedCornerShape(16.dp))
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .border(1.dp, MtBorder, RoundedCornerShape(14.dp))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text("Quick start", color = MtHi, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            Text("Quick start", color = MtHi, fontWeight = FontWeight.Bold, fontSize = 11.sp)
             Text(
                 steps[selectedStep].hint,
                 color = MtMid,
@@ -273,7 +267,7 @@ private fun QuickStartStrip() {
                     modifier = Modifier
                         .weight(1f)
                         .graphicsLayer { scaleX = scale; scaleY = scale }
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(10.dp))
                         .background(
                             if (selected) step.accent.copy(alpha = 0.14f)
                             else Color.Transparent,
@@ -282,19 +276,19 @@ private fun QuickStartStrip() {
                             interactionSource = interaction,
                             indication = null,
                         ) { selectedStep = index }
-                        .padding(vertical = 6.dp, horizontal = 2.dp),
+                        .padding(vertical = 4.dp, horizontal = 2.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(30.dp)
-                            .clip(RoundedCornerShape(9.dp))
+                            .size(26.dp)
+                            .clip(RoundedCornerShape(8.dp))
                             .background(step.accent.copy(alpha = if (selected) 0.22f else 0.12f))
                             .border(
                                 1.dp,
                                 step.accent.copy(alpha = if (selected) 0.55f else 0.25f),
-                                RoundedCornerShape(9.dp),
+                                RoundedCornerShape(8.dp),
                             ),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -302,7 +296,7 @@ private fun QuickStartStrip() {
                             step.icon,
                             contentDescription = step.label,
                             tint = step.accent,
-                            modifier = Modifier.size(16.dp),
+                            modifier = Modifier.size(14.dp),
                         )
                     }
                     Text(

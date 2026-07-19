@@ -66,6 +66,7 @@ import net.mtautoclicker.android.engine.LaunchResult
 import net.mtautoclicker.android.engine.formatDuration
 import net.mtautoclicker.android.ui.components.FeaturePageScaffold
 import net.mtautoclicker.android.ui.components.FeatureStepUi
+import net.mtautoclicker.android.ui.components.MacroRecorderAnimatedIcon
 import net.mtautoclicker.android.ui.components.MtPrimaryButton
 import net.mtautoclicker.android.ui.theme.MtBorder
 import net.mtautoclicker.android.ui.theme.MtCard
@@ -471,12 +472,20 @@ private fun RecordHeroCard(starting: Boolean, onStart: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(56.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Brush.linearGradient(RecordGradient)),
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    Color(0xFFF43F5E).copy(alpha = 0.32f),
+                                    Color(0xFFF43F5E).copy(alpha = 0.12f),
+                                ),
+                            ),
+                        )
+                        .border(1.dp, Color(0xFFF43F5E).copy(alpha = 0.4f), RoundedCornerShape(16.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Rounded.RadioButtonChecked, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                    MacroRecorderAnimatedIcon(accent = Color(0xFFF43F5E), size = 36.dp)
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Record on your device", color = MtHi, fontWeight = FontWeight.Bold, fontSize = 16.sp)

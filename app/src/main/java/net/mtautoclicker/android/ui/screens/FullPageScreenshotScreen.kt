@@ -76,6 +76,7 @@ import net.mtautoclicker.android.ui.components.FeatureStepUi
 import net.mtautoclicker.android.ui.components.FeatureTab
 import net.mtautoclicker.android.ui.components.FeatureTabBar
 import net.mtautoclicker.android.ui.components.FullPageScreenshotGradient
+import net.mtautoclicker.android.ui.components.ScreenshotAnimatedIcon
 import net.mtautoclicker.android.ui.components.SettingsCard
 import net.mtautoclicker.android.ui.theme.MtBorder
 import net.mtautoclicker.android.ui.theme.MtCard
@@ -210,6 +211,9 @@ fun FullPageScreenshotScreen(onBack: () -> Unit, onNeedsPermissions: () -> Unit)
                 },
                 onEditSummary = { },
                 starting = starting,
+                animatedIcon = {
+                    ScreenshotAnimatedIcon(accent = Color(0xFF06B6D4), size = 36.dp)
+                },
             )
 
             status?.let { Text(it, color = MtEmerald) }
