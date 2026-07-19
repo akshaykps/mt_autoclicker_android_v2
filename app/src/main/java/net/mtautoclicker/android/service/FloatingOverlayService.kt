@@ -39,6 +39,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import net.mtautoclicker.android.MtApplication
+import net.mtautoclicker.android.MainActivity
 import net.mtautoclicker.android.R
 import net.mtautoclicker.android.data.AutomationPlan
 import net.mtautoclicker.android.data.AutomationRunState
@@ -55,6 +56,7 @@ import net.mtautoclicker.android.data.StopType
 import net.mtautoclicker.android.data.TargetMode
 import net.mtautoclicker.android.engine.AutomationHub
 import net.mtautoclicker.android.engine.MIN_CLICK_INTERVAL_MS
+import net.mtautoclicker.android.ui.screens.AppRoute
 import kotlin.math.roundToInt
 
 /**
@@ -91,6 +93,7 @@ class FloatingOverlayService : Service() {
     private var zoneDragStartY = 0f
     private var zonePreview: View? = null
     @Volatile private var markerScalePercent = SettingsRepository.DEFAULT_MARKER_SCALE
+    @Volatile private var floatBarScalePercent = SettingsRepository.DEFAULT_FLOAT_BAR_SCALE
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -109,6 +112,13 @@ class FloatingOverlayService : Service() {
                 if (markersVisible) {
                     refreshMarkers(AutomationHub.snapshot.value.targets)
                 }
+            }
+        }
+        scope.launch {
+            MtApplication.instance.settingsRepository.floatBarScalePercent.collectLatest { scale ->
+                if (floatBarScalePercent == scale) return@collectLatest
+                floatBarScalePercent = scale
+                rebuildFloatBar()
             }
         }
         scope.launch {
@@ -162,9 +172,9 @@ class FloatingOverlayService : Service() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             // Side padding must clear circle + stroke so icons aren't clipped.
-            setPadding(dp(8), dp(8), dp(8), dp(10))
+            setPadding(sdp(8), sdp(8), sdp(8), sdp(10))
             background = pillBg()
-            elevation = dp(10).toFloat()
+            elevation = sdp(10).toFloat()
             clipChildren = false
             clipToPadding = false
         }
@@ -194,10 +204,7 @@ class FloatingOverlayService : Service() {
         top.addView(spacerV(3))
         top.addView(eyeBtn)
 
-        brandBtn = brandRoundBtn {
-            collapsed = !collapsed
-            applyCollapsedState()
-        }
+        brandBtn = brandRoundBtn { openFeatureScreen() }
 
         val bottom = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -270,12 +277,22 @@ class FloatingOverlayService : Service() {
         topSection?.visibility = gone
         bottomSection?.visibility = gone
         floatBar?.setPadding(
-            dp(8),
-            if (collapsed) dp(6) else dp(8),
-            dp(8),
-            if (collapsed) dp(6) else dp(10),
+            sdp(8),
+            if (collapsed) sdp(6) else sdp(8),
+            sdp(8),
+            if (collapsed) sdp(6) else sdp(10),
         )
         // Collapse spacers by rebuilding is heavy — hide sections is enough
+    }
+
+    private fun rebuildFloatBar() {
+        val runState = AutomationHub.snapshot.value.runState
+        // Force a full rebuild so scaled sizes apply (running pill normally reuses views).
+        runningStrip = null
+        when (runState) {
+            AutomationRunState.RUNNING, AutomationRunState.PAUSED -> showRunningPill(runState)
+            else -> showArmedPill()
+        }
     }
 
     // ─── Running vertical control pill (play/pause + stop only) ───────────
@@ -284,7 +301,7 @@ class FloatingOverlayService : Service() {
         val paused = state == AutomationRunState.PAUSED
 
         // Reuse existing running pill — only flip play/pause glyph
-        if (runningStrip != null) {
+        if (runningStrip != null && floatBar != null) {
             playBtn?.setImageResource(if (paused) R.drawable.ic_play else R.drawable.ic_pause)
             playBtn?.background = circleFillBg(
                 if (paused) 0xFF059669.toInt() else 0xFFD97706.toInt(),
@@ -309,9 +326,9 @@ class FloatingOverlayService : Service() {
         val pill = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(8), dp(10), dp(8), dp(10))
+            setPadding(sdp(8), sdp(10), sdp(8), sdp(10))
             background = pillBg()
-            elevation = dp(12).toFloat()
+            elevation = sdp(12).toFloat()
             clipChildren = false
             clipToPadding = false
         }
@@ -321,8 +338,8 @@ class FloatingOverlayService : Service() {
 
         // Live status dot above controls
         val statusDot = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(8), dp(8)).apply {
-                bottomMargin = dp(6)
+            layoutParams = LinearLayout.LayoutParams(sdp(8), sdp(8)).apply {
+                bottomMargin = sdp(6)
                 gravity = Gravity.CENTER_HORIZONTAL
             }
             background = GradientDrawable().apply {
@@ -343,14 +360,7 @@ class FloatingOverlayService : Service() {
             }
         }
 
-        brandBtn = brandRoundBtn {
-            // Tap MT while running = pause/resume (quick toggle)
-            if (AutomationHub.snapshot.value.runState == AutomationRunState.PAUSED) {
-                ClickAutomationService.resume(this)
-            } else {
-                ClickAutomationService.pause(this)
-            }
-        }.also {
+        brandBtn = brandRoundBtn { openFeatureScreen() }.also {
             it.background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
                 intArrayOf(
@@ -960,12 +970,12 @@ class FloatingOverlayService : Service() {
         fillColor: Int? = null,
         onClick: (View) -> Unit,
     ): ImageButton {
-        val size = dp(30)
+        val size = sdp(30)
         return ImageButton(this).apply {
             setImageResource(iconRes)
             imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setPadding(dp(7), dp(7), dp(7), dp(7))
+            setPadding(sdp(7), sdp(7), sdp(7), sdp(7))
             background = if (fillColor != null) circleFillBg(fillColor) else circleOutlineBg()
             layoutParams = LinearLayout.LayoutParams(size, size).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
@@ -985,19 +995,19 @@ class FloatingOverlayService : Service() {
         fillColor: Int? = null,
         onClick: (View) -> Unit,
     ): TextView {
-        val size = dp(34)
+        val size = sdp(34)
         return TextView(this).apply {
             text = label
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f * floatBarScalePercent / 100f)
             typeface = Typeface.DEFAULT_BOLD
             background = if (fillColor != null) circleFillBg(fillColor) else circleOutlineBg()
             layoutParams = LinearLayout.LayoutParams(size, size)
             isEnabled = enabled
             alpha = if (enabled) 1f else 0.4f
             isClickable = true
-            elevation = dp(2).toFloat()
+            elevation = sdp(2).toFloat()
             setOnClickListener { if (isEnabled) onClick(this) }
         }
     }
@@ -1005,18 +1015,20 @@ class FloatingOverlayService : Service() {
     private fun circleFillBg(color: Int): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.OVAL
         setColor(color)
-        setStroke(dp(1), 0x66FFFFFF)
+        setStroke(sdp(1).coerceAtLeast(1), 0x66FFFFFF)
     }
 
     private fun brandRoundBtn(onClick: () -> Unit): ImageView {
-        val size = dp(30)
+        val size = sdp(30)
+        val inset = sdp(3)
         return ImageView(this).apply {
-            setImageResource(R.mipmap.ic_launcher)
+            setImageResource(R.drawable.ic_app_logo)
             scaleType = ImageView.ScaleType.CENTER_CROP
+            setPadding(inset, inset, inset, inset)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(0xFF0D1333.toInt())
-                setStroke(dp(1), 0x8060A5FA.toInt())
+                setColor(0xFF0F172A.toInt())
+                setStroke(sdp(1).coerceAtLeast(1), 0x8060A5FA.toInt())
             }
             clipToOutline = true
             outlineProvider = object : ViewOutlineProvider() {
@@ -1028,10 +1040,26 @@ class FloatingOverlayService : Service() {
                 gravity = Gravity.CENTER_HORIZONTAL
             }
             elevation = 0f
+            contentDescription = "Open feature in MT Auto Clicker"
             isClickable = true
             setOnClickListener { onClick() }
         }
     }
+
+    private fun openFeatureScreen() {
+        val route = if (AutomationHub.activePlan is AutomationPlan.Multi) {
+            AppRoute.MULTI_TARGET
+        } else {
+            AppRoute.SINGLE_TARGET
+        }
+        startActivity(MainActivity.routeIntent(this, route))
+        // Leave the float bar when returning to the feature screen.
+        ClickAutomationService.stop(this)
+        hideSettingsPanel()
+        AutomationHub.stopAll()
+        stopSelf()
+    }
+
     private fun chipBtn(label: String, color: Int, onClick: () -> Unit): TextView =
         TextView(this).apply {
             text = label
@@ -1187,8 +1215,8 @@ class FloatingOverlayService : Service() {
         text = "⠿"
         gravity = Gravity.CENTER
         setTextColor(0xFF94A3B8.toInt())
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-        setPadding(dp(6), dp(2), dp(6), dp(6))
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f * floatBarScalePercent / 100f)
+        setPadding(sdp(6), sdp(2), sdp(6), sdp(6))
         layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1197,8 +1225,8 @@ class FloatingOverlayService : Service() {
 
     private fun pillBg(): GradientDrawable = GradientDrawable().apply {
         setColor(0xF20F172A.toInt())
-        cornerRadius = dp(999).toFloat()
-        setStroke(dp(1), 0x8060A5FA.toInt())
+        cornerRadius = sdp(999).toFloat()
+        setStroke(sdp(1).coerceAtLeast(1), 0x8060A5FA.toInt())
     }
 
     private fun settingsPanelBg(): GradientDrawable = GradientDrawable().apply {
@@ -1211,28 +1239,28 @@ class FloatingOverlayService : Service() {
     private fun circleOutlineBg(): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.OVAL
         setColor(0x4D3B82F6.toInt())
-        setStroke(dp(1), 0x8060A5FA.toInt())
+        setStroke(sdp(1).coerceAtLeast(1), 0x8060A5FA.toInt())
     }
 
     private fun circleStrokeBg(fill: Int, stroke: Int): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(fill)
-            setStroke(dp(2), stroke)
+            setStroke(sdp(2).coerceAtLeast(1), stroke)
         }
 
     private fun roundedBg(color: Int, radiusDp: Float): GradientDrawable =
         GradientDrawable().apply {
             setColor(color)
-            cornerRadius = dp(radiusDp.toInt()).toFloat()
+            cornerRadius = sdp(radiusDp.toInt()).toFloat()
         }
 
     private fun spacerV(h: Int): View = View(this).apply {
-        layoutParams = LinearLayout.LayoutParams(1, dp(h))
+        layoutParams = LinearLayout.LayoutParams(1, sdp(h))
     }
 
     private fun spacerH(w: Int): View = View(this).apply {
-        layoutParams = LinearLayout.LayoutParams(dp(w), 1)
+        layoutParams = LinearLayout.LayoutParams(sdp(w), 1)
     }
 
     private fun overlayParams(
@@ -1289,6 +1317,11 @@ class FloatingOverlayService : Service() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    /** Density-independent px scaled by float-bar size preference. */
+    private fun sdp(value: Int): Int =
+        (value * resources.displayMetrics.density * floatBarScalePercent / 100f).roundToInt()
+            .coerceAtLeast(1)
 
     private fun removeFloatBarOnly() {
         floatBar?.let { runCatching { wm().removeView(it) } }

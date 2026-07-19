@@ -5,6 +5,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import net.mtautoclicker.android.MtApplication
 import net.mtautoclicker.android.data.AutomationPlan
 import net.mtautoclicker.android.data.AutomationRunState
 import net.mtautoclicker.android.data.AutomationSnapshot
@@ -110,6 +114,12 @@ object AutomationHub {
                 totalRuntimeMs = it.totalRuntimeMs + runtimeMs,
                 runCount = it.runCount + 1,
             )
+        }
+        // Lifetime feature-use counter for Mac-parity review gating.
+        runCatching {
+            CoroutineScope(Dispatchers.IO).launch {
+                MtApplication.instance.settingsRepository.incrementFeatureUseCount()
+            }
         }
     }
 

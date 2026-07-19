@@ -1,8 +1,11 @@
 package net.mtautoclicker.android.ui.components
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,30 +24,47 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.AdsClick
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.KeyboardHide
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import net.mtautoclicker.android.R
 import net.mtautoclicker.android.ui.theme.MtBlue
 import net.mtautoclicker.android.ui.theme.MtBorder
 import net.mtautoclicker.android.ui.theme.MtCard
@@ -66,17 +86,44 @@ fun PageScaffold(
     title: String,
     onBack: (() -> Unit)? = null,
     scrollState: ScrollState = rememberScrollState(),
+    /** Hide keyboard button — useful on forms; off for screens like Settings. */
+    showKeyboardHide: Boolean = true,
+    contentSpacing: androidx.compose.ui.unit.Dp = 14.dp,
+    horizontalPadding: androidx.compose.ui.unit.Dp = 18.dp,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val dockScrollReporter = LocalDockScrollReporter.current
+
+    // Scroll dismisses keyboard on Realme / OEMs that hide the system “close keyboard” key.
+    LaunchedEffect(scrollState.isScrollInProgress) {
+        if (scrollState.isScrollInProgress) {
+            focusManager.clearFocus(force = true)
+            keyboard?.hide()
+        }
+    }
+
+    LaunchedEffect(scrollState.value) {
+        dockScrollReporter.onScroll(scrollState.value)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MtDeep)
             .mtSafeEdges()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) {
+                focusManager.clearFocus(force = true)
+                keyboard?.hide()
+            }
             .verticalScroll(scrollState)
-            .padding(horizontal = 18.dp)
-            .padding(top = 8.dp, bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(horizontal = horizontalPadding)
+            .padding(top = 6.dp, bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(contentSpacing),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -85,7 +132,7 @@ fun PageScaffold(
             if (onBack != null) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(36.dp)
                         .clip(CircleShape)
                         .background(MtCard)
                         .border(1.dp, MtBorder, CircleShape)
@@ -96,18 +143,33 @@ fun PageScaffold(
                         imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                         contentDescription = "Back",
                         tint = MtHi,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(18.dp),
                     )
                 }
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
             }
             Text(
                 text = title,
                 color = MtHi,
-                fontSize = 20.sp,
+                fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f),
             )
+            if (showKeyboardHide) {
+                IconButton(
+                    onClick = {
+                        focusManager.clearFocus(force = true)
+                        keyboard?.hide()
+                    },
+                ) {
+                    Icon(
+                        Icons.Rounded.KeyboardHide,
+                        contentDescription = "Hide keyboard",
+                        tint = MtMid,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
         }
         content()
     }
@@ -197,17 +259,31 @@ fun MetricCard(
     value: String,
     accent: Color,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(if (compact) 12.dp else 16.dp))
             .background(MtCard)
-            .border(1.dp, MtBorder, RoundedCornerShape(16.dp))
-            .padding(horizontal = 12.dp, vertical = 14.dp),
+            .border(1.dp, MtBorder, RoundedCornerShape(if (compact) 12.dp else 16.dp))
+            .padding(
+                horizontal = if (compact) 10.dp else 12.dp,
+                vertical = if (compact) 8.dp else 14.dp,
+            ),
     ) {
-        Text(text = label, color = MtMid, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(text = value, color = accent, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Text(
+            text = label,
+            color = MtMid,
+            fontSize = if (compact) 10.sp else 11.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        Spacer(modifier = Modifier.height(if (compact) 3.dp else 6.dp))
+        Text(
+            text = value,
+            color = accent,
+            fontWeight = FontWeight.Bold,
+            fontSize = if (compact) 15.sp else 18.sp,
+        )
     }
 }
 
@@ -218,43 +294,62 @@ fun FeatureCard(
     accent: Color,
     icon: ImageVector,
     onClick: () -> Unit,
+    compact: Boolean = false,
 ) {
+    val shape = RoundedCornerShape(if (compact) 14.dp else 18.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(4.dp, RoundedCornerShape(18.dp), clip = false)
-            .clip(RoundedCornerShape(18.dp))
+            .then(if (compact) Modifier else Modifier.shadow(4.dp, shape, clip = false))
+            .clip(shape)
             .background(MtCard)
-            .border(1.dp, MtBorder.copy(alpha = 0.85f), RoundedCornerShape(18.dp))
+            .border(1.dp, MtBorder.copy(alpha = 0.85f), shape)
             .clickable(onClick = onClick)
-            .padding(14.dp),
+            .padding(if (compact) 10.dp else 14.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp),
     ) {
         Box(
             modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(14.dp))
+                .size(if (compact) 36.dp else 48.dp)
+                .clip(RoundedCornerShape(if (compact) 10.dp else 14.dp))
                 .background(
                     Brush.linearGradient(
                         listOf(accent.copy(alpha = 0.35f), accent.copy(alpha = 0.12f)),
                     ),
                 )
-                .border(1.dp, accent.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
+                .border(1.dp, accent.copy(alpha = 0.35f), RoundedCornerShape(if (compact) 10.dp else 14.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(imageVector = icon, contentDescription = null, tint = accent, modifier = Modifier.size(24.dp))
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(if (compact) 18.dp else 24.dp),
+            )
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = MtHi, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(subtitle, color = MtMid, fontSize = 12.sp, lineHeight = 16.sp)
+            Text(
+                title,
+                color = MtHi,
+                fontWeight = FontWeight.Bold,
+                fontSize = if (compact) 13.sp else 15.sp,
+                maxLines = 1,
+            )
+            if (!compact) Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                subtitle,
+                color = MtMid,
+                fontSize = if (compact) 11.sp else 12.sp,
+                lineHeight = if (compact) 13.sp else 16.sp,
+                maxLines = if (compact) 1 else 2,
+            )
         }
         Icon(
             imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
             contentDescription = null,
             tint = MtMid,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(if (compact) 18.dp else 22.dp),
         )
     }
 }
@@ -284,10 +379,10 @@ fun SectionLabel(text: String) {
     Text(
         text = text.uppercase(),
         color = MtMid,
-        fontSize = 11.sp,
+        fontSize = 10.sp,
         fontWeight = FontWeight.Bold,
         letterSpacing = 0.8.sp,
-        modifier = Modifier.padding(start = 2.dp, top = 4.dp, bottom = 2.dp),
+        modifier = Modifier.padding(start = 2.dp, top = 0.dp, bottom = 0.dp),
     )
 }
 
@@ -324,6 +419,7 @@ fun MtTextField(
         onValueChange = onValueChange,
         label = { Text(label) },
         modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = MtBlue,
             unfocusedBorderColor = MtBorder,
@@ -337,47 +433,193 @@ fun MtTextField(
     )
 }
 
+/**
+ * Number input: numeric keyboard, no trailing ".0", clears on focus so typing replaces the value.
+ * Includes Done / hide-keyboard affordances for OEMs (e.g. Realme) that omit a system hide key.
+ */
 @Composable
-fun HeroHeader(@Suppress("UNUSED_PARAMETER") version: String = "", onSettingsClick: (() -> Unit)? = null) {
+fun MtNumberField(
+    value: Number,
+    onCommit: (Long) -> Unit,
+    label: String,
+    min: Long = 0,
+    allowEmptyWhileTyping: Boolean = true,
+) {
+    val display = formatWholeNumber(value)
+    var text by remember { mutableStateOf(display) }
+    var focused by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    fun dismissKeyboard() {
+        if (text.isBlank()) {
+            text = display
+        } else {
+            val n = (text.toLongOrNull() ?: min).coerceAtLeast(min)
+            text = n.toString()
+            onCommit(n)
+        }
+        focused = false
+        focusManager.clearFocus(force = true)
+        keyboard?.hide()
+    }
+
+    // Keep in sync when parent value changes and field is not being edited.
+    LaunchedEffect(display, focused) {
+        if (!focused) text = display
+    }
+
+    OutlinedTextField(
+        value = text,
+        onValueChange = { raw ->
+            val filtered = raw.filter { it.isDigit() }
+            text = filtered
+            if (filtered.isNotEmpty()) {
+                val n = filtered.toLongOrNull() ?: return@OutlinedTextField
+                onCommit(n.coerceAtLeast(min))
+            } else if (!allowEmptyWhileTyping) {
+                onCommit(min)
+            }
+        },
+        label = { Text(label) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { state ->
+                if (state.isFocused) {
+                    focused = true
+                    text = ""
+                } else if (focused) {
+                    focused = false
+                    if (text.isBlank()) {
+                        text = display
+                    } else {
+                        val n = (text.toLongOrNull() ?: min).coerceAtLeast(min)
+                        text = n.toString()
+                        onCommit(n)
+                    }
+                    keyboard?.hide()
+                }
+            },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Number,
+            imeAction = ImeAction.Done,
+        ),
+        keyboardActions = KeyboardActions(
+            onDone = { dismissKeyboard() },
+        ),
+        trailingIcon = {
+            if (focused) {
+                IconButton(onClick = { dismissKeyboard() }) {
+                    Icon(
+                        Icons.Rounded.Check,
+                        contentDescription = "Done — hide keyboard",
+                        tint = MtBlue,
+                    )
+                }
+            }
+        },
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = MtBlue,
+            unfocusedBorderColor = MtBorder,
+            focusedTextColor = MtHi,
+            unfocusedTextColor = MtHi,
+            focusedLabelColor = MtMid,
+            unfocusedLabelColor = MtMid,
+            cursorColor = MtBlue,
+        ),
+        shape = RoundedCornerShape(12.dp),
+    )
+}
+
+/** Show 100 instead of 100.0 */
+fun formatWholeNumber(value: Number): String {
+    val d = value.toDouble()
+    return if (d == d.toLong().toDouble()) d.toLong().toString() else {
+        // Trim trailing zeros for rare fractional intervals
+        d.toString().trimEnd('0').trimEnd('.')
+    }
+}
+
+@Composable
+fun HeroHeader(
+    @Suppress("UNUSED_PARAMETER") version: String = "",
+    notificationCount: Int = 0,
+    compact: Boolean = false,
+    onNotificationsClick: (() -> Unit)? = null,
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    listOf(MtBlue.copy(alpha = 0.18f), Color.Transparent),
+                    listOf(MtBlue.copy(alpha = 0.14f), Color.Transparent),
                 ),
             )
-            .padding(horizontal = 18.dp)
-            .padding(top = 12.dp, bottom = 8.dp),
+            .padding(horizontal = if (compact) 14.dp else 18.dp)
+            .padding(top = if (compact) 6.dp else 12.dp, bottom = if (compact) 4.dp else 8.dp),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 12.dp),
+        ) {
+            Image(
+                painter = painterResource(R.drawable.ic_app_logo),
+                contentDescription = "MT Auto Clicker",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(if (compact) 40.dp else 48.dp)
+                    .clip(RoundedCornerShape(if (compact) 12.dp else 14.dp))
+                    .border(1.dp, MtBorder, RoundedCornerShape(if (compact) 12.dp else 14.dp)),
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "MT Auto Clicker",
+                    color = MtHi,
+                    fontSize = if (compact) 17.sp else 20.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "Click less. Do more.",
+                    color = MtMid,
+                    fontSize = if (compact) 11.sp else 13.sp,
+                )
+            }
+            if (onNotificationsClick != null) {
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(
-                            Brush.linearGradient(listOf(MtPurple, MtBlue)),
-                        ),
+                        .size(if (compact) 36.dp else 40.dp)
+                        .clip(CircleShape)
+                        .background(MtCard)
+                        .border(1.dp, MtBorder, CircleShape)
+                        .clickable(onClick = onNotificationsClick),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Rounded.AdsClick, null, tint = Color.White, modifier = Modifier.size(26.dp))
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("MT Auto Clicker", color = MtHi, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Text("Click less. Do more.", color = MtMid, fontSize = 13.sp)
-                }
-                if (onSettingsClick != null) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(MtCard)
-                            .border(1.dp, MtBorder, CircleShape)
-                            .clickable(onClick = onSettingsClick),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Rounded.Settings, null, tint = MtMid, modifier = Modifier.size(20.dp))
+                    Icon(
+                        Icons.Rounded.Notifications,
+                        contentDescription = "Notifications",
+                        tint = MtBlue,
+                        modifier = Modifier.size(if (compact) 18.dp else 20.dp),
+                    )
+                    if (notificationCount > 0) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .size(if (compact) 8.dp else 15.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFDC2626))
+                                .border(1.dp, MtCard, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (!compact) {
+                                Text(
+                                    if (notificationCount > 9) "9+" else notificationCount.toString(),
+                                    color = Color.White,
+                                    fontSize = 7.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
                     }
                 }
             }

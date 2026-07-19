@@ -18,6 +18,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -31,6 +32,7 @@ import kotlinx.coroutines.launch
 import net.mtautoclicker.android.R
 import net.mtautoclicker.android.engine.FullPageCaptureHub
 import net.mtautoclicker.android.engine.FullPageCapturePhase
+import net.mtautoclicker.android.ui.screens.AppRoute
 
 /**
  * Compact float bar for Full Page Screenshot: Snapshot + Close,
@@ -43,7 +45,7 @@ class ScreenshotOverlayService : Service() {
     private var root: View? = null
     private var params: WindowManager.LayoutParams? = null
     private var statusView: TextView? = null
-    private var snapshotBtn: TextView? = null
+    private var snapshotBtn: ImageButton? = null
     private var panelX = 0
     private var panelY = 0
     private var hidden = false
@@ -111,82 +113,49 @@ class ScreenshotOverlayService : Service() {
     @SuppressLint("ClickableViewAccessibility", "SetTextI18n")
     private fun showChip() {
         removeChip()
-        val btn = dp(34)
-        val chipPad = dp(6)
+        val btn = dp(32)
+        val chipPad = dp(7)
+        val accent = 0xFF06B6D4.toInt()
         val chip = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(chipPad, dp(8), chipPad, dp(8))
-            background = GradientDrawable().apply {
-                setColor(0xF2111827.toInt())
-                cornerRadius = dp(28).toFloat()
-                setStroke(dp(1), 0x5506B6D4.toInt())
-            }
-            elevation = dp(10).toFloat()
+            background = floatbarPillBg(accent)
+            elevation = dp(12).toFloat()
+            clipChildren = false
+            clipToPadding = false
         }
 
-        val handle = TextView(this).apply {
-            text = "⠿"
-            gravity = Gravity.CENTER
-            setTextColor(0xFF94A3B8.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setPadding(dp(4), dp(2), dp(4), dp(6))
-            layoutParams = LinearLayout.LayoutParams(btn, LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
+        val handle = floatbarDragHandle(btn)
         setupDrag(handle)
         chip.addView(handle)
 
-        statusView = TextView(this).apply {
-            text = "Shot"
-            gravity = Gravity.CENTER
-            setTextColor(0xFFE2E8F0.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, 0, 0, dp(6))
-            layoutParams = LinearLayout.LayoutParams(btn, LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
+        statusView = floatbarStatusLabel("Shot", btn, 0xFF67E8F9.toInt())
         chip.addView(statusView)
 
-        snapshotBtn = TextView(this).apply {
-            text = "📷"
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            includeFontPadding = false
-            background = GradientDrawable().apply {
-                setColor(0xFF0891B2.toInt())
-                cornerRadius = dp(999).toFloat()
+        chip.addView(
+            mtFeatureButton(btn, AppRoute.FULL_PAGE_SCREENSHOT) {
+                FullPageCaptureService.stop(this@ScreenshotOverlayService)
+                FullPageCaptureHub.reset()
+                stopSelf()
+            },
+        )
+
+        snapshotBtn = floatbarActionButton(
+            iconRes = R.drawable.ic_screenshot,
+            sizePx = btn,
+            fillColor = 0xFF0891B2.toInt(),
+        ) {
+            if (FullPageCaptureHub.snapshot.value.phase == FullPageCapturePhase.CAPTURING) {
+                Toast.makeText(this@ScreenshotOverlayService, "Already capturing…", Toast.LENGTH_SHORT).show()
+                return@floatbarActionButton
             }
-            layoutParams = LinearLayout.LayoutParams(btn, btn).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                bottomMargin = dp(5)
-            }
-            setOnClickListener {
-                if (FullPageCaptureHub.snapshot.value.phase == FullPageCapturePhase.CAPTURING) {
-                    Toast.makeText(this@ScreenshotOverlayService, "Already capturing…", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                FullPageCaptureService.capture(this@ScreenshotOverlayService)
-            }
+            FullPageCaptureService.capture(this@ScreenshotOverlayService)
         }
         chip.addView(snapshotBtn)
 
         chip.addView(
-            TextView(this).apply {
-                text = "✕"
-                gravity = Gravity.CENTER
-                setTextColor(0xFFE2E8F0.toInt())
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                includeFontPadding = false
-                background = GradientDrawable().apply {
-                    setColor(0xFF334155.toInt())
-                    cornerRadius = dp(999).toFloat()
-                }
-                layoutParams = LinearLayout.LayoutParams(btn, btn).apply {
-                    gravity = Gravity.CENTER_HORIZONTAL
-                }
-                setOnClickListener { stopSelf() }
-            },
+            floatbarCloseButton(btn) { stopSelf() },
         )
 
         // Keep clear of the right rounded display corner / gesture edge.

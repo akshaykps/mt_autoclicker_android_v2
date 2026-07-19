@@ -55,6 +55,7 @@ import net.mtautoclicker.android.engine.MacroHub
 import net.mtautoclicker.android.engine.MacroSessionSnapshot
 import net.mtautoclicker.android.engine.NavEdge
 import net.mtautoclicker.android.engine.NavEdgeBands
+import net.mtautoclicker.android.ui.screens.AppRoute
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -492,103 +493,56 @@ class MacroOverlayService : Service() {
     private fun showVerticalPlaybackChip(snap: MacroSessionSnapshot) {
         removePanel()
         val cfg = snap.playbackConfig
-        val btn = dp(34)
-        val chipPad = dp(6)
+        val btn = dp(32)
+        val chipPad = dp(7)
+        val accent = 0xFF8B5CF6.toInt()
         val chip = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(chipPad, dp(8), chipPad, dp(8))
-            background = GradientDrawable().apply {
-                setColor(0xF2111827.toInt())
-                cornerRadius = dp(28).toFloat()
-                setStroke(dp(1), 0x668B5CF6.toInt())
-            }
-            elevation = dp(10).toFloat()
+            background = floatbarPillBg(accent)
+            elevation = dp(12).toFloat()
+            clipChildren = false
+            clipToPadding = false
         }
 
-        val handle = TextView(this).apply {
-            text = "⠿"
-            gravity = Gravity.CENTER
-            setTextColor(0xFF94A3B8.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setPadding(dp(4), dp(2), dp(4), dp(6))
-            layoutParams = LinearLayout.LayoutParams(btn, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
+        val handle = floatbarDragHandle(btn)
         setupDragHandle(handle)
         chip.addView(handle)
 
         chip.addView(
-            TextView(this).apply {
-                text = "${cfg.steps.size}"
-                gravity = Gravity.CENTER
-                setTextColor(0xFFF8FAFC.toInt())
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-                typeface = Typeface.DEFAULT_BOLD
-                setPadding(0, 0, 0, dp(6))
-                layoutParams = LinearLayout.LayoutParams(btn, ViewGroup.LayoutParams.WRAP_CONTENT)
+            floatbarStatusLabel("${cfg.steps.size}", btn, 0xFFC4B5FD.toInt()),
+        )
+
+        chip.addView(
+            mtFeatureButton(btn, AppRoute.MACRO_RECORDER) {
+                closeMacroSession()
             },
         )
 
         listOf(0.5f to "0.5x", 1f to "1x", 2f to "2x").forEach { (value, label) ->
             val active = kotlin.math.abs(cfg.playbackSpeed - value) < 0.01f
             chip.addView(
-                TextView(this).apply {
-                    text = label
-                    gravity = Gravity.CENTER
-                    setTextColor(if (active) Color.WHITE else 0xFFCBD5E1.toInt())
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
-                    typeface = Typeface.DEFAULT_BOLD
-                    maxLines = 1
-                    includeFontPadding = false
-                    background = if (active) {
-                        roundedBg(0xFF3B82F6.toInt(), 999f)
-                    } else {
-                        roundedBg(0xFF1E293B.toInt(), 999f).also {
-                            it.setStroke(dp(1), 0xFF475569.toInt())
-                        }
-                    }
-                    layoutParams = LinearLayout.LayoutParams(btn, btn).apply {
-                        gravity = Gravity.CENTER_HORIZONTAL
-                        bottomMargin = dp(5)
-                    }
-                    setOnClickListener { MacroHub.patchPlayback(speed = value) }
+                floatbarSpeedChip(label, btn, active) {
+                    MacroHub.patchPlayback(speed = value)
                 },
             )
         }
 
         chip.addView(spacerV(2))
         chip.addView(
-            TextView(this).apply {
-                text = "▶"
-                gravity = Gravity.CENTER
-                setTextColor(Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                includeFontPadding = false
-                background = roundedBg(0xFF10B981.toInt(), 999f)
-                layoutParams = LinearLayout.LayoutParams(btn, btn).apply {
-                    gravity = Gravity.CENTER_HORIZONTAL
-                    bottomMargin = dp(5)
-                }
-                setOnClickListener {
-                    removePanel()
-                    cancelNotification(PLAYBACK_READY_NOTIFICATION_ID)
-                    MacroPlaybackService.start(this@MacroOverlayService)
-                }
+            floatbarActionButton(
+                iconRes = R.drawable.ic_play,
+                sizePx = btn,
+                fillColor = 0xFF10B981.toInt(),
+            ) {
+                removePanel()
+                cancelNotification(PLAYBACK_READY_NOTIFICATION_ID)
+                MacroPlaybackService.start(this@MacroOverlayService)
             },
         )
         chip.addView(
-            TextView(this).apply {
-                text = "✕"
-                gravity = Gravity.CENTER
-                setTextColor(0xFFE2E8F0.toInt())
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                includeFontPadding = false
-                background = roundedBg(0xFF334155.toInt(), 999f)
-                layoutParams = LinearLayout.LayoutParams(btn, btn).apply {
-                    gravity = Gravity.CENTER_HORIZONTAL
-                }
-                setOnClickListener { closeMacroSession() }
-            },
+            floatbarCloseButton(btn) { closeMacroSession() },
         )
 
         // Keep clear of the right rounded display corner / gesture edge.

@@ -59,6 +59,32 @@ class MacroRepository(private val context: Context) {
         }
     }
 
+    suspend fun deleteAllMacros() {
+        context.macroDataStore.edit { prefs ->
+            prefs[key] = encodeList(emptyList())
+        }
+    }
+
+    suspend fun macroCount(): Int = allMacros().size
+
+    /** Merges macros by id; returns how many were newly added. */
+    suspend fun importMacros(incoming: List<SavedMacro>): Int {
+        if (incoming.isEmpty()) return 0
+        var added = 0
+        context.macroDataStore.edit { prefs ->
+            val current = decodeList(prefs[key].orEmpty()).toMutableList()
+            val existingIds = current.map { it.id }.toSet()
+            incoming.forEach { m ->
+                if (m.id !in existingIds) {
+                    current.add(0, m)
+                    added++
+                }
+            }
+            prefs[key] = encodeList(current)
+        }
+        return added
+    }
+
     private fun decodeList(raw: String): List<SavedMacro> {
         if (raw.isBlank()) return emptyList()
         return runCatching { json.decodeFromString<List<SavedMacro>>(raw) }.getOrDefault(emptyList())

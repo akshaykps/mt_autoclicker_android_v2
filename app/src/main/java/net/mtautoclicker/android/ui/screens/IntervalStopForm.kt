@@ -25,7 +25,7 @@ import net.mtautoclicker.android.data.StopCondition
 import net.mtautoclicker.android.data.StopType
 import net.mtautoclicker.android.data.TargetMode
 import net.mtautoclicker.android.engine.MIN_CLICK_INTERVAL_MS
-import net.mtautoclicker.android.ui.components.MtTextField
+import net.mtautoclicker.android.ui.components.MtNumberField
 import net.mtautoclicker.android.ui.components.SettingsCard
 import net.mtautoclicker.android.ui.theme.MtBlue
 import net.mtautoclicker.android.ui.theme.MtBorder
@@ -44,6 +44,7 @@ private fun MtDropdownColors() = OutlinedTextFieldDefaults.colors(
     focusedTrailingIconColor = MtMid,
     unfocusedTrailingIconColor = MtMid,
 )
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IntervalStopForm(
@@ -53,18 +54,14 @@ fun IntervalStopForm(
     onStopChange: (StopCondition) -> Unit,
 ) {
     SettingsCard(title = "Timing") {
-        MtTextField(
-            value = interval.value.toString(),
-            onValueChange = { v ->
-                val parsed = v.toDoubleOrNull() ?: interval.value
-                val clamped = if (interval.unit == IntervalUnit.MS) {
-                    parsed.coerceAtLeast(MIN_CLICK_INTERVAL_MS.toDouble())
-                } else {
-                    parsed.coerceAtLeast(0.001)
-                }
-                onIntervalChange(interval.copy(value = clamped))
+        val intervalMin = if (interval.unit == IntervalUnit.MS) MIN_CLICK_INTERVAL_MS.toLong() else 1L
+        MtNumberField(
+            value = interval.value,
+            onCommit = { n ->
+                onIntervalChange(interval.copy(value = n.toDouble().coerceAtLeast(intervalMin.toDouble())))
             },
             label = "Interval (min ${MIN_CLICK_INTERVAL_MS} ms)",
+            min = intervalMin,
         )
         Text(
             "Fastest reliable rate on Android is about ${MIN_CLICK_INTERVAL_MS} ms (~${1000 / MIN_CLICK_INTERVAL_MS} CPS). Device may run slightly slower under load.",
@@ -80,41 +77,47 @@ fun IntervalStopForm(
             Switch(checked = interval.variable, onCheckedChange = { onIntervalChange(interval.copy(variable = it)) })
         }
         if (interval.variable) {
-            MtTextField(
-                value = interval.minValue?.toString().orEmpty(),
-                onValueChange = { onIntervalChange(interval.copy(minValue = it.toDoubleOrNull())) },
+            MtNumberField(
+                value = interval.minValue ?: interval.value,
+                onCommit = { n -> onIntervalChange(interval.copy(minValue = n.toDouble())) },
                 label = "Min",
+                min = intervalMin,
             )
-            MtTextField(
-                value = interval.maxValue?.toString().orEmpty(),
-                onValueChange = { onIntervalChange(interval.copy(maxValue = it.toDoubleOrNull())) },
+            MtNumberField(
+                value = interval.maxValue ?: interval.value,
+                onCommit = { n -> onIntervalChange(interval.copy(maxValue = n.toDouble())) },
                 label = "Max",
+                min = intervalMin,
             )
         }
-        MtTextField(
-            value = interval.startDelayMs.toString(),
-            onValueChange = { onIntervalChange(interval.copy(startDelayMs = it.toLongOrNull() ?: 0)) },
+        MtNumberField(
+            value = interval.startDelayMs,
+            onCommit = { n -> onIntervalChange(interval.copy(startDelayMs = n)) },
             label = "Start delay (ms)",
+            min = 0,
         )
-        MtTextField(
-            value = interval.randomOffsetPx.toString(),
-            onValueChange = { onIntervalChange(interval.copy(randomOffsetPx = it.toIntOrNull() ?: 0)) },
+        MtNumberField(
+            value = interval.randomOffsetPx,
+            onCommit = { n -> onIntervalChange(interval.copy(randomOffsetPx = n.toInt())) },
             label = "Random offset (px)",
+            min = 0,
         )
     }
 
     SettingsCard(title = "Stop condition") {
         StopTypeDropdown(stop.type) { onStopChange(stop.copy(type = it)) }
         when (stop.type) {
-            StopType.CYCLES -> MtTextField(
-                value = stop.cycles?.toString().orEmpty(),
-                onValueChange = { onStopChange(stop.copy(cycles = it.toIntOrNull())) },
+            StopType.CYCLES -> MtNumberField(
+                value = stop.cycles ?: 1,
+                onCommit = { n -> onStopChange(stop.copy(cycles = n.toInt().coerceAtLeast(1))) },
                 label = "Number of cycles",
+                min = 1,
             )
-            StopType.DURATION -> MtTextField(
-                value = ((stop.durationMs ?: 0) / 1000).toString(),
-                onValueChange = { onStopChange(stop.copy(durationMs = (it.toLongOrNull() ?: 0) * 1000)) },
+            StopType.DURATION -> MtNumberField(
+                value = ((stop.durationMs ?: 0L) / 1000L).coerceAtLeast(0L),
+                onCommit = { n -> onStopChange(stop.copy(durationMs = n.coerceAtLeast(0) * 1000)) },
                 label = "Duration (seconds)",
+                min = 0,
             )
             StopType.NEVER -> Text("Runs until you stop manually.", color = MtMid)
         }

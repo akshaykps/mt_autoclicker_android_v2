@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 import net.mtautoclicker.android.R
 import net.mtautoclicker.android.data.AutomationRunState
 import net.mtautoclicker.android.engine.AutoRefreshHub
+import net.mtautoclicker.android.ui.screens.AppRoute
 
 /**
  * Float bar for Auto Refresh: Refresh / Pause / Stop + Close.
@@ -111,88 +112,59 @@ class RefreshOverlayService : Service() {
     @SuppressLint("ClickableViewAccessibility", "SetTextI18n")
     private fun showChip() {
         removeChip()
-        val btn = dp(34)
-        val chipPad = dp(6)
+        val btn = dp(32)
+        val chipPad = dp(7)
+        val accent = 0xFFF59E0B.toInt()
         val chip = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(chipPad, dp(8), chipPad, dp(8))
-            background = GradientDrawable().apply {
-                setColor(0xF2111827.toInt())
-                cornerRadius = dp(28).toFloat()
-                setStroke(dp(1), 0x55F59E0B.toInt())
-            }
-            elevation = dp(10).toFloat()
+            background = floatbarPillBg(accent)
+            elevation = dp(12).toFloat()
+            clipChildren = false
+            clipToPadding = false
         }
 
-        val handle = TextView(this).apply {
-            text = "⠿"
-            gravity = Gravity.CENTER
-            setTextColor(0xFF94A3B8.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setPadding(dp(4), dp(2), dp(4), dp(6))
-            layoutParams = LinearLayout.LayoutParams(btn, LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
+        val handle = floatbarDragHandle(btn)
         setupDrag(handle)
         chip.addView(handle)
 
-        statusView = TextView(this).apply {
-            text = "Ready"
-            gravity = Gravity.CENTER
-            setTextColor(0xFFE2E8F0.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-            letterSpacing = 0.02f
-            setPadding(0, 0, 0, dp(6))
-            layoutParams = LinearLayout.LayoutParams(btn, LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
+        statusView = floatbarStatusLabel("Ready", btn, 0xFFFBBF24.toInt())
         chip.addView(statusView)
 
-        actionBtn = ImageView(this).apply {
-            setImageResource(R.drawable.ic_refresh)
-            setColorFilter(Color.WHITE)
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-            background = circleBg(0xFFF59E0B.toInt())
-            layoutParams = LinearLayout.LayoutParams(btn, btn).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                bottomMargin = dp(5)
-            }
-            setOnClickListener {
-                when (AutoRefreshHub.snapshot.value.runState) {
-                    AutomationRunState.RUNNING -> AutoRefreshService.pause(this@RefreshOverlayService)
-                    AutomationRunState.PAUSED -> AutoRefreshService.resume(this@RefreshOverlayService)
-                    else -> {
-                        if (!MtAccessibilityService.isEnabled()) {
-                            Toast.makeText(
-                                this@RefreshOverlayService,
-                                "Enable Accessibility first",
-                                Toast.LENGTH_LONG,
-                            ).show()
-                            return@setOnClickListener
-                        }
-                        AutoRefreshService.start(this@RefreshOverlayService)
+        chip.addView(
+            mtFeatureButton(btn, AppRoute.AUTO_REFRESH) {
+                AutoRefreshService.stop(this@RefreshOverlayService)
+                AutoRefreshHub.reset()
+                stopSelf()
+            },
+        )
+
+        actionBtn = floatbarActionButton(
+            iconRes = R.drawable.ic_refresh,
+            sizePx = btn,
+            fillColor = 0xFFF59E0B.toInt(),
+        ) {
+            when (AutoRefreshHub.snapshot.value.runState) {
+                AutomationRunState.RUNNING -> AutoRefreshService.pause(this@RefreshOverlayService)
+                AutomationRunState.PAUSED -> AutoRefreshService.resume(this@RefreshOverlayService)
+                else -> {
+                    if (!MtAccessibilityService.isEnabled()) {
+                        Toast.makeText(
+                            this@RefreshOverlayService,
+                            "Enable Accessibility first",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                        return@floatbarActionButton
                     }
+                    AutoRefreshService.start(this@RefreshOverlayService)
                 }
             }
         }
         chip.addView(actionBtn)
 
         chip.addView(
-            TextView(this).apply {
-                text = "✕"
-                gravity = Gravity.CENTER
-                setTextColor(0xFFE2E8F0.toInt())
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                includeFontPadding = false
-                background = GradientDrawable().apply {
-                    setColor(0xFF334155.toInt())
-                    cornerRadius = dp(999).toFloat()
-                }
-                layoutParams = LinearLayout.LayoutParams(btn, btn).apply {
-                    gravity = Gravity.CENTER_HORIZONTAL
-                }
-                setOnClickListener { stopSelf() }
-            },
+            floatbarCloseButton(btn) { stopSelf() },
         )
 
         // Keep clear of the right rounded display corner / gesture edge.

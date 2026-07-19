@@ -130,6 +130,50 @@ class PresetRepository(private val context: Context) {
         }
     }
 
+    /** Clears recent-run presets only (Mac "Clear History"). */
+    suspend fun clearRecentHistory() {
+        context.presetDataStore.edit { prefs ->
+            val kept = decodeList(prefs[key].orEmpty()).filterNot { isRecent(it) }
+            prefs[key] = encodeList(kept)
+        }
+    }
+
+    /** Deletes all user-saved presets (keeps nothing). */
+    suspend fun deleteAllPresets() {
+        context.presetDataStore.edit { prefs ->
+            prefs[key] = encodeList(emptyList())
+        }
+    }
+
+    suspend fun exportPresetsJson(): String = encodeList(allPresets())
+
+    suspend fun importPresetsJson(raw: String): Int = importPresetsList(decodeList(raw))
+
+    /** Merges presets by id; returns how many were newly added. */
+    suspend fun importPresetsList(incoming: List<MtPreset>): Int {
+        if (incoming.isEmpty()) return 0
+        var added = 0
+        context.presetDataStore.edit { prefs ->
+            val current = decodeList(prefs[key].orEmpty()).toMutableList()
+            val existingIds = current.map { it.id }.toSet()
+            incoming.forEach { p ->
+                if (p.id !in existingIds) {
+                    current.add(0, p)
+                    added++
+                }
+            }
+            prefs[key] = encodeList(current)
+        }
+        return added
+    }
+
+    suspend fun storageSummary(): Pair<Int, Int> {
+        val all = allPresets()
+        val saved = all.count { !isRecent(it) }
+        val recent = all.count { isRecent(it) }
+        return saved to recent
+    }
+
     suspend fun allPresets(): List<MtPreset> = presets.first()
 
     private fun trimRecentsLocked(current: MutableList<MtPreset>, feature: FeatureKind) {
